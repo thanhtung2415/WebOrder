@@ -1,0 +1,54 @@
+{
+  "name": "weborder-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NestJS backend foundation for Web Order Quan Nuoc/Ca Phe.",
+  "overrides": {
+    "multer": "2.3.0"
+  },
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "node dist/main.js",
+    "test": "jest",
+    "test:e2e": "jest --config jest.e2e.config.js",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:format": "prisma format --schema prisma/schema.prisma",
+    "prisma:validate": "prisma validate --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.2.3",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.2.3",
+    "@nestjs/platform-express": "^11.2.3",
+    "@nestjs/swagger": "^11.4.7",
+    "@nestjs/throttler": "^6.5.0",
+    "@prisma/client": "^6.12.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "helmet": "^8.3.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@nestjs/cli": "^11.0.24",
+    "@nestjs/schematics": "^11.1.0",
+    "@nestjs/testing": "^11.2.3",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.20.2",
+    "@types/supertest": "^7.2.1",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "jest": "^29.7.0",
+    "prisma": "^6.12.0",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.12",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
+  }
+}
