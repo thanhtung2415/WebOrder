@@ -3,7 +3,7 @@ import { Reflector } from "@nestjs/core";
 import { Request } from "express";
 import { invalidToken } from "../../../common/errors/api-exception";
 import { PermissionCode } from "../permissions";
-import { REQUIRED_PERMISSIONS_KEY } from "../require-permissions.decorator";
+import { REQUIRED_ANY_PERMISSIONS_KEY, REQUIRED_PERMISSIONS_KEY } from "../require-permissions.decorator";
 import { AuthorizationService } from "../services/authorization.service";
 
 @Injectable()
@@ -18,7 +18,11 @@ export class PermissionGuard implements CanActivate {
       context.getHandler(),
       context.getClass()
     ]);
-    if (!required || required.length === 0) {
+    const requiredAny = this.reflector.getAllAndOverride<PermissionCode[]>(REQUIRED_ANY_PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass()
+    ]);
+    if ((!required || required.length === 0) && (!requiredAny || requiredAny.length === 0)) {
       return true;
     }
 
@@ -26,7 +30,12 @@ export class PermissionGuard implements CanActivate {
     if (!request.branchContext) {
       throw invalidToken();
     }
-    this.authorizationService.assertPermissions(request.branchContext, required);
+    if (required && required.length > 0) {
+      this.authorizationService.assertPermissions(request.branchContext, required);
+    }
+    if (requiredAny && requiredAny.length > 0) {
+      this.authorizationService.assertAnyPermission(request.branchContext, requiredAny);
+    }
     return true;
   }
 }

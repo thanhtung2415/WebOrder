@@ -98,6 +98,13 @@ export class AuthorizationService {
     }
   }
 
+  assertAnyPermission(context: BranchContext, required: readonly PermissionCode[]): void {
+    const granted = new Set(context.permissions);
+    if (!required.some((permission) => granted.has(permission))) {
+      throw forbidden("FORBIDDEN", "Permission denied");
+    }
+  }
+
   assertActiveAccount(status: AccountStatus): void {
     if (status === AccountStatus.PENDING) {
       throw forbidden("ACCOUNT_PENDING", "Account is pending approval");
