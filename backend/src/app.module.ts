@@ -1,29 +1,37 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { CommonInfrastructureModule } from "./common/common-infrastructure.module";
 import { AppConfigModule } from "./config/app-config.module";
 import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
+import { AuthModule } from "./modules/auth/auth.module";
+import { BranchesModule } from "./modules/branches/branches.module";
+import { RolesModule } from "./modules/roles/roles.module";
+import { SetupModule } from "./modules/setup/setup.module";
+import { StaffModule } from "./modules/staff/staff.module";
 import { RequestContextMiddleware } from "./common/middleware/request-context.middleware";
 import { RequestLoggingMiddleware } from "./common/middleware/request-logging.middleware";
-import { RequestContextService } from "./common/request-context/request-context.service";
-import { StructuredLoggerService } from "./common/logging/structured-logger.service";
 
 @Module({
   imports: [
     AppConfigModule,
+    CommonInfrastructureModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,
-        limit: 120
+        limit: 1000
       }
     ]),
     DatabaseModule,
-    HealthModule
+    HealthModule,
+    AuthModule,
+    SetupModule,
+    BranchesModule,
+    StaffModule,
+    RolesModule
   ],
   providers: [
-    RequestContextService,
-    StructuredLoggerService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard
