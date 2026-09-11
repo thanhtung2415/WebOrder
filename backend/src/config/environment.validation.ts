@@ -11,6 +11,7 @@ export interface EnvironmentVariables {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_STORAGE_PRODUCT_BUCKET?: string;
   SUPABASE_JWT_ISSUER: string;
   SUPABASE_JWT_AUDIENCE: string;
   GOOGLE_CLIENT_ID: string;
@@ -127,6 +128,7 @@ export function validateEnvironment(config: RawEnvironment): EnvironmentVariable
     SUPABASE_URL: assertUrl(getRequiredString(config, "SUPABASE_URL"), "SUPABASE_URL"),
     SUPABASE_ANON_KEY: getRequiredString(config, "SUPABASE_ANON_KEY"),
     SUPABASE_SERVICE_ROLE_KEY: getRequiredString(config, "SUPABASE_SERVICE_ROLE_KEY"),
+    SUPABASE_STORAGE_PRODUCT_BUCKET: getOptionalString(config, "SUPABASE_STORAGE_PRODUCT_BUCKET"),
     SUPABASE_JWT_ISSUER: assertUrl(getRequiredString(config, "SUPABASE_JWT_ISSUER"), "SUPABASE_JWT_ISSUER"),
     SUPABASE_JWT_AUDIENCE: getRequiredString(config, "SUPABASE_JWT_AUDIENCE"),
     GOOGLE_CLIENT_ID: getRequiredString(config, "GOOGLE_CLIENT_ID"),

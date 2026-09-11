@@ -7,5 +7,6 @@ module.exports = {
     "^.+\\.(t|j)s$": "ts-jest"
   },
   setupFiles: ["<rootDir>/test/setup-env.ts"],
-  testEnvironment: "node"
+  testEnvironment: "node",
+  maxWorkers: 1
 };

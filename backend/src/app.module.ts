@@ -7,6 +7,7 @@ import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BranchesModule } from "./modules/branches/branches.module";
+import { MenuModule } from "./modules/menu/menu.module";
 import { RolesModule } from "./modules/roles/roles.module";
 import { SetupModule } from "./modules/setup/setup.module";
 import { StaffModule } from "./modules/staff/staff.module";
@@ -28,6 +29,7 @@ import { RequestLoggingMiddleware } from "./common/middleware/request-logging.mi
     AuthModule,
     SetupModule,
     BranchesModule,
+    MenuModule,
     StaffModule,
     RolesModule
   ],
