@@ -1,8 +1,10 @@
 import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AdminLayout } from "../admin/AdminLayout";
 import { BranchManagementPage, RoleManagementPage, StaffManagementPage } from "../admin/AdminPages";
+import { CategoryManagementPage, OptionManagementPage, ProductManagementPage } from "../admin/MenuPages";
 import { PendingPage } from "../auth/pending-page";
 import { CustomerLayout } from "../customer/CustomerLayout";
+import { CustomerMenuPage } from "../customer/CustomerMenuPage";
 import { SetupPage } from "../setup/setup-page";
 import { SetupStatusGuard } from "../setup/setup-status-guard";
 import { StaffLayout } from "../staff/StaffLayout";
@@ -25,7 +27,7 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
     {
       path: "/customer",
       element: <CustomerLayout />,
-      children: [{ index: true, element: <ShellPage namespace="customer" /> }]
+      children: [{ index: true, element: <CustomerMenuPage /> }]
     },
     {
       path: "/staff",
@@ -42,7 +44,10 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
       children: [
         { index: true, element: <StaffManagementPage /> },
         { path: "branches", element: <BranchManagementPage /> },
-        { path: "roles", element: <RoleManagementPage /> }
+        { path: "roles", element: <RoleManagementPage /> },
+        { path: "menu", element: <CategoryManagementPage /> },
+        { path: "products", element: <ProductManagementPage /> },
+        { path: "options", element: <OptionManagementPage /> }
       ]
     }
   ]);

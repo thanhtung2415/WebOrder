@@ -49,10 +49,11 @@ export class ApiClient {
   async request<TData>(path: string, options: ApiRequestOptions = {}): Promise<StandardSuccessResponse<TData>> {
     const requestId = options.requestId ?? createRequestId();
     const headers = this.buildHeaders(options, requestId);
+    const body = options.body instanceof FormData ? options.body : options.body === undefined ? undefined : JSON.stringify(options.body);
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      body
     });
     const payload = (await response.json()) as StandardApiResponse<TData>;
 
@@ -71,11 +72,13 @@ export class ApiClient {
 
   private buildHeaders(options: ApiRequestOptions, requestId: string): Record<string, string> {
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
       "X-Request-Id": requestId,
       ...options.headers
     };
 
+    if (!(options.body instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
+    }
     if (options.accessToken) {
       headers.Authorization = `Bearer ${options.accessToken}`;
     }
