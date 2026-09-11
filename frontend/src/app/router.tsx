@@ -2,6 +2,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AdminLayout } from "../admin/AdminLayout";
 import { BranchManagementPage, RoleManagementPage, StaffManagementPage } from "../admin/AdminPages";
 import { CategoryManagementPage, OptionManagementPage, ProductManagementPage } from "../admin/MenuPages";
+import { IngredientManagementPage, RecipeManagementPage, UnitManagementPage } from "../admin/RecipePages";
 import { PendingPage } from "../auth/pending-page";
 import { CustomerLayout } from "../customer/CustomerLayout";
 import { CustomerMenuPage } from "../customer/CustomerMenuPage";
@@ -47,7 +48,10 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
         { path: "roles", element: <RoleManagementPage /> },
         { path: "menu", element: <CategoryManagementPage /> },
         { path: "products", element: <ProductManagementPage /> },
-        { path: "options", element: <OptionManagementPage /> }
+        { path: "options", element: <OptionManagementPage /> },
+        { path: "units", element: <UnitManagementPage /> },
+        { path: "ingredients", element: <IngredientManagementPage /> },
+        { path: "recipes", element: <RecipeManagementPage /> }
       ]
     }
   ]);

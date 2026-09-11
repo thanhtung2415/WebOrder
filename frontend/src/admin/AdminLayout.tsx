@@ -108,6 +108,15 @@ export function AdminLayout(): ReactElement {
               <NavLink className={({ isActive }) => navClass(isActive)} to="/admin/options">
                 Options
               </NavLink>
+              <NavLink className={({ isActive }) => navClass(isActive)} to="/admin/units">
+                Units
+              </NavLink>
+              <NavLink className={({ isActive }) => navClass(isActive)} to="/admin/ingredients">
+                Ingredients
+              </NavLink>
+              <NavLink className={({ isActive }) => navClass(isActive)} to="/admin/recipes">
+                Recipes
+              </NavLink>
             </nav>
           </div>
           <div className="flex flex-wrap items-center gap-2">
