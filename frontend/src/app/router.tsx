@@ -4,9 +4,11 @@ import { BranchManagementPage, RoleManagementPage, StaffManagementPage } from ".
 import { InventoryManagementPage } from "../admin/InventoryPages";
 import { CategoryManagementPage, OptionManagementPage, ProductManagementPage } from "../admin/MenuPages";
 import { IngredientManagementPage, RecipeManagementPage, UnitManagementPage } from "../admin/RecipePages";
+import { TableManagementPage } from "../admin/TablePages";
 import { PendingPage } from "../auth/pending-page";
 import { CustomerLayout } from "../customer/CustomerLayout";
 import { CustomerMenuPage } from "../customer/CustomerMenuPage";
+import { CustomerQrEntryPage } from "../customer/CustomerQrEntryPage";
 import { SetupPage } from "../setup/setup-page";
 import { SetupStatusGuard } from "../setup/setup-status-guard";
 import { StaffLayout } from "../staff/StaffLayout";
@@ -32,9 +34,17 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
       children: [{ index: true, element: <CustomerMenuPage /> }]
     },
     {
+      path: "/table/:qrToken",
+      element: <CustomerLayout />,
+      children: [{ index: true, element: <CustomerQrEntryPage /> }]
+    },
+    {
       path: "/staff",
       element: <StaffLayout />,
-      children: [{ index: true, element: <ShellPage namespace="staff" /> }]
+      children: [
+        { index: true, element: <ShellPage namespace="staff" /> },
+        { path: "tables", element: <TableManagementPage /> }
+      ]
     },
     {
       path: "/admin",
@@ -53,7 +63,8 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
         { path: "units", element: <UnitManagementPage /> },
         { path: "ingredients", element: <IngredientManagementPage /> },
         { path: "recipes", element: <RecipeManagementPage /> },
-        { path: "inventory", element: <InventoryManagementPage /> }
+        { path: "inventory", element: <InventoryManagementPage /> },
+        { path: "tables", element: <TableManagementPage /> }
       ]
     }
   ]);

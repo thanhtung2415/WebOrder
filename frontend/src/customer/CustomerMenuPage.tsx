@@ -6,10 +6,18 @@ import { Product } from "../admin/menu-api";
 import { ApiClientError } from "../services/api-client";
 import { fetchCustomerMenu } from "./customer-menu-api";
 
-export function CustomerMenuPage(): ReactElement {
+export function CustomerMenuPage({
+  branchIdOverride,
+  qrSessionTokenOverride,
+  sessionLabel
+}: {
+  branchIdOverride?: string;
+  qrSessionTokenOverride?: string;
+  sessionLabel?: string;
+}): ReactElement {
   const [searchParams] = useSearchParams();
-  const branchId = searchParams.get("branchId") ?? "";
-  const qrSessionToken = searchParams.get("qrSessionToken") ?? searchParams.get("token") ?? "";
+  const branchId = branchIdOverride ?? searchParams.get("branchId") ?? window.sessionStorage.getItem("qrBranchId") ?? "";
+  const qrSessionToken = qrSessionTokenOverride ?? searchParams.get("qrSessionToken") ?? searchParams.get("token") ?? window.sessionStorage.getItem("qrSessionToken") ?? "";
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
@@ -41,7 +49,7 @@ export function CustomerMenuPage(): ReactElement {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Menu tại bàn</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Chọn món, tùy chọn và gửi order khi phiên bàn còn mở.</p>
+          <p className="mt-1 text-sm text-muted-foreground">{sessionLabel ?? "Chọn món, tùy chọn và gửi order khi phiên bàn còn mở."}</p>
         </div>
         <button className="h-9 rounded-md border border-border px-3 text-sm font-medium" type="button">
           Gọi nhân viên
