@@ -15,6 +15,7 @@ import {
 } from "./customer-cart-api";
 import { fetchCustomerMenu } from "./customer-menu-api";
 import { confirmCustomerOrder, fetchCustomerSessionOrders, type Order, type OrderItemStatus } from "./customer-order-api";
+import { createCustomerServiceRequest, type ServiceRequestType } from "./customer-service-request-api";
 
 interface ProductDraft {
   quantity: number;
@@ -41,6 +42,7 @@ export function CustomerMenuPage({
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [draft, setDraft] = useState<ProductDraft>({ quantity: 1, optionValueIds: [], note: "" });
   const [cartError, setCartError] = useState<string | null>(null);
+  const [serviceFeedback, setServiceFeedback] = useState<FeedbackState>(null);
 
   const menuQuery = useQuery({
     queryKey: ["customer-menu", branchId, qrSessionToken],
@@ -127,6 +129,13 @@ export function CustomerMenuPage({
     },
     onError: (error) => setCartError(errorMessage(error, "Không gửi được order."))
   });
+  const serviceRequestMutation = useMutation({
+    mutationFn: (type: ServiceRequestType) => createCustomerServiceRequest(qrSessionToken, type, tableSessionId),
+    onSuccess: (_request, type) => {
+      setServiceFeedback({ type: "success", message: type === "CALL_STAFF" ? "Đã gọi nhân viên." : "Đã gửi yêu cầu thanh toán." });
+    },
+    onError: (error) => setServiceFeedback({ type: "error", message: serviceRequestErrorMessage(error) })
+  });
   const confirmCurrentCart = (): void => {
     const token = cartQuery.data?.token ?? cartToken ?? window.sessionStorage.getItem(cartStorageKey) ?? "";
     if (!token) {
@@ -165,10 +174,16 @@ export function CustomerMenuPage({
           <h1 className="text-2xl font-semibold">Menu tại bàn</h1>
           <p className="mt-1 text-sm text-muted-foreground">{sessionLabel ?? "Chọn món, tùy chọn và gửi order khi phiên bàn còn mở."}</p>
         </div>
-        <button className="h-9 rounded-md border border-border px-3 text-sm font-medium" type="button">
-          Gọi nhân viên
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button className="h-9 rounded-md border border-border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={!tableSessionId || serviceRequestMutation.isPending} onClick={() => serviceRequestMutation.mutate("CALL_STAFF")}>
+            Gọi nhân viên
+          </button>
+          <button className="h-9 rounded-md border border-border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={!tableSessionId || serviceRequestMutation.isPending} onClick={() => serviceRequestMutation.mutate("REQUEST_PAYMENT")}>
+            Yêu cầu thanh toán
+          </button>
+        </div>
       </div>
+      <Feedback value={serviceFeedback} />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid content-start gap-4">
@@ -398,6 +413,15 @@ function StatusPill({ status }: { status: OrderItemStatus }): ReactElement {
   return <span className={`rounded-md px-2 py-1 text-xs font-medium ${tone}`}>{statusLabel(status)}</span>;
 }
 
+type FeedbackState = { type: "success" | "error"; message: string } | null;
+
+function Feedback({ value }: { value: FeedbackState }): ReactElement | null {
+  if (!value) {
+    return null;
+  }
+  return <p className={`rounded-md border border-border p-3 text-sm ${value.type === "error" ? "text-red-600" : "text-green-700 dark:text-green-300"}`}>{value.message}</p>;
+}
+
 function CartItemRow({
   item,
   isMutating,
@@ -474,6 +498,13 @@ function reservationText(item: CartItem): string {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiClientError ? error.message : fallback;
+}
+
+function serviceRequestErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError && error.code === "RATE_LIMITED") {
+    return "Bạn vừa gửi yêu cầu này. Vui lòng chờ một chút.";
+  }
+  return errorMessage(error, "Không gửi được yêu cầu.");
 }
 
 function formatMoney(value: string): string {

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiClientError } from "../services/api-client";
 import { CustomerMenuPage } from "./CustomerMenuPage";
 
 const fetchCustomerMenuMock = vi.fn();
@@ -11,6 +12,7 @@ const updateCustomerCartItemMock = vi.fn();
 const deleteCustomerCartItemMock = vi.fn();
 const confirmCustomerOrderMock = vi.fn();
 const fetchCustomerSessionOrdersMock = vi.fn();
+const createCustomerServiceRequestMock = vi.fn();
 
 vi.mock("./customer-menu-api", () => ({
   fetchCustomerMenu: (...args: unknown[]) => fetchCustomerMenuMock(...args)
@@ -26,6 +28,10 @@ vi.mock("./customer-cart-api", () => ({
 vi.mock("./customer-order-api", () => ({
   confirmCustomerOrder: (...args: unknown[]) => confirmCustomerOrderMock(...args),
   fetchCustomerSessionOrders: (...args: unknown[]) => fetchCustomerSessionOrdersMock(...args)
+}));
+
+vi.mock("./customer-service-request-api", () => ({
+  createCustomerServiceRequest: (...args: unknown[]) => createCustomerServiceRequestMock(...args)
 }));
 
 vi.mock("../orders/use-order-realtime", () => ({
@@ -60,8 +66,10 @@ describe("CustomerMenuPage", () => {
     deleteCustomerCartItemMock.mockReset();
     confirmCustomerOrderMock.mockReset();
     fetchCustomerSessionOrdersMock.mockReset();
+    createCustomerServiceRequestMock.mockReset();
     fetchCustomerCartMock.mockResolvedValue(emptyCart());
     fetchCustomerSessionOrdersMock.mockResolvedValue({ items: [] });
+    createCustomerServiceRequestMock.mockResolvedValue(sampleServiceRequest());
   });
 
   it("requires a QR session token before loading menu data", async () => {
@@ -150,6 +158,31 @@ describe("CustomerMenuPage", () => {
     await waitFor(() => expect(confirmCustomerOrderMock).toHaveBeenCalledWith("qr-token", "cart-token", expect.any(String)));
     expect(await screen.findByText("ORD-1")).toBeInTheDocument();
     expect(screen.getByText("Mới")).toBeInTheDocument();
+  });
+
+  it("sends call-staff and payment requests from the current QR session", async () => {
+    fetchCustomerMenuMock.mockResolvedValue([]);
+    renderCustomerMenu("/customer?branchId=branch-id&qrSessionToken=qr-token");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Gọi nhân viên" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Gọi nhân viên" }));
+    await waitFor(() => expect(createCustomerServiceRequestMock).toHaveBeenCalledWith("qr-token", "CALL_STAFF", "session-id"));
+    expect(await screen.findByText("Đã gọi nhân viên.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Yêu cầu thanh toán" }));
+    await waitFor(() => expect(createCustomerServiceRequestMock).toHaveBeenLastCalledWith("qr-token", "REQUEST_PAYMENT", "session-id"));
+    expect(await screen.findByText("Đã gửi yêu cầu thanh toán.")).toBeInTheDocument();
+  });
+
+  it("shows customer service request cooldown errors", async () => {
+    fetchCustomerMenuMock.mockResolvedValue([]);
+    createCustomerServiceRequestMock.mockRejectedValue(new ApiClientError("RATE_LIMITED", "rate", "request-id"));
+    renderCustomerMenu("/customer?branchId=branch-id&qrSessionToken=qr-token");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Gọi nhân viên" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Gọi nhân viên" }));
+
+    expect(await screen.findByText("Bạn vừa gửi yêu cầu này. Vui lòng chờ một chút.")).toBeInTheDocument();
   });
 });
 
@@ -262,6 +295,22 @@ function sampleOrder() {
       }
     ],
     subtotal: "35000.00",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function sampleServiceRequest() {
+  return {
+    id: "service-request-id",
+    branchId: "branch-id",
+    tableSessionId: "session-id",
+    type: "CALL_STAFF",
+    status: "PENDING",
+    handledById: null,
+    acknowledgedAt: null,
+    resolvedAt: null,
+    table: { id: "table-id", code: "T01", displayName: "T01" },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
