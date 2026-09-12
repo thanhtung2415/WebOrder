@@ -8,6 +8,8 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
       inventory_transactions,
+      stocktake_items,
+      stocktakes,
       inventories,
       recipe_items,
       recipes,
@@ -16,6 +18,7 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
       ingredients,
       units,
       audit_logs,
+      realtime_outbox,
       staff_roles,
       role_permissions,
       permissions,
