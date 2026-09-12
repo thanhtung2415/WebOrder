@@ -7,6 +7,7 @@ import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BranchesModule } from "./modules/branches/branches.module";
+import { CartModule } from "./modules/cart/cart.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MenuModule } from "./modules/menu/menu.module";
 import { RecipesModule } from "./modules/recipes/recipes.module";
@@ -32,6 +33,7 @@ import { RequestLoggingMiddleware } from "./common/middleware/request-logging.mi
     AuthModule,
     SetupModule,
     BranchesModule,
+    CartModule,
     MenuModule,
     RecipesModule,
     InventoryModule,

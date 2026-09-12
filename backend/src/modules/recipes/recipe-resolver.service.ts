@@ -26,16 +26,20 @@ export class RecipeResolverService {
   ) {}
 
   async resolveProductRecipe(productId: string, optionValueIds: string[], context?: BranchContext): Promise<ResolvedRecipe> {
+    return this.resolveProductRecipeInTx(this.prisma, productId, optionValueIds, context?.branch.id);
+  }
+
+  async resolveProductRecipeInTx(tx: Prisma.TransactionClient | PrismaService, productId: string, optionValueIds: string[], branchId?: string): Promise<ResolvedRecipe> {
     this.authorizationService.validateUuid(productId, "INVALID_PRODUCT_ID");
     for (const optionValueId of optionValueIds) {
       this.authorizationService.validateUuid(optionValueId, "INVALID_OPTION");
     }
     const uniqueOptionValueIds = [...new Set(optionValueIds)].sort();
-    const product = await this.prisma.product.findFirst({
+    const product = await tx.product.findFirst({
       where: {
         id: productId,
         deletedAt: null,
-        ...(context ? { branchId: context.branch.id } : {})
+        ...(branchId ? { branchId } : {})
       }
     });
     if (!product) {
@@ -43,7 +47,7 @@ export class RecipeResolverService {
     }
 
     if (uniqueOptionValueIds.length > 0) {
-      const matchedOptions = await this.prisma.productOptionValue.findMany({
+      const matchedOptions = await tx.productOptionValue.findMany({
         where: {
           id: { in: uniqueOptionValueIds },
           isActive: true,
@@ -56,7 +60,7 @@ export class RecipeResolverService {
       }
     }
 
-    const baseRecipe = await this.prisma.recipe.findFirst({
+    const baseRecipe = await tx.recipe.findFirst({
       where: { productId, type: RecipeType.BASE, isActive: true },
       include: this.activeRecipeInclude()
     });
@@ -64,7 +68,7 @@ export class RecipeResolverService {
       throw unprocessable("RECIPE_NOT_CONFIGURED", "Product active base recipe is missing");
     }
     const optionRecipes = uniqueOptionValueIds.length
-      ? await this.prisma.recipe.findMany({
+      ? await tx.recipe.findMany({
           where: { productId, productOptionValueId: { in: uniqueOptionValueIds }, isActive: true },
           include: this.activeRecipeInclude(),
           orderBy: [{ productOptionValueId: "asc" }]
@@ -138,4 +142,3 @@ export class RecipeResolverService {
     }
   }
 }
-
