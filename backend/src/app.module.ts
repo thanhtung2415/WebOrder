@@ -13,6 +13,7 @@ import { RecipesModule } from "./modules/recipes/recipes.module";
 import { RolesModule } from "./modules/roles/roles.module";
 import { SetupModule } from "./modules/setup/setup.module";
 import { StaffModule } from "./modules/staff/staff.module";
+import { TablesModule } from "./modules/tables/tables.module";
 import { RequestContextMiddleware } from "./common/middleware/request-context.middleware";
 import { RequestLoggingMiddleware } from "./common/middleware/request-logging.middleware";
 
@@ -34,6 +35,7 @@ import { RequestLoggingMiddleware } from "./common/middleware/request-logging.mi
     MenuModule,
     RecipesModule,
     InventoryModule,
+    TablesModule,
     StaffModule,
     RolesModule
   ],

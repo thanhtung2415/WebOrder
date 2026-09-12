@@ -3,5 +3,6 @@ declare namespace Express {
     requestId?: string;
     authContext?: import("../../modules/auth/auth-context").AuthContext;
     branchContext?: import("../../modules/auth/branch-context").BranchContext;
+    qrSessionContext?: import("../../modules/tables/table.types").QrSessionContext;
   }
 }

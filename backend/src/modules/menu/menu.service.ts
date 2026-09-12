@@ -5,6 +5,7 @@ import { RequestContextService } from "../../common/request-context/request-cont
 import { PrismaService } from "../../database/prisma.service";
 import { BranchContext } from "../auth/branch-context";
 import { AuthorizationService } from "../auth/services/authorization.service";
+import { QrSessionContext } from "../tables/table.types";
 import {
   CreateCategoryDto,
   CreateOptionGroupDto,
@@ -93,12 +94,20 @@ export class MenuService {
   }
 
   async listProducts(query: ProductListQueryDto, context: BranchContext): Promise<ProductListResponse> {
+    return this.listProductsForBranch(query, context.branch.id);
+  }
+
+  async listProductsForQrSession(query: ProductListQueryDto, context: QrSessionContext): Promise<ProductListResponse> {
+    return this.listProductsForBranch({ ...query, activeOnly: "true" }, context.branchId);
+  }
+
+  async listProductsForBranch(query: ProductListQueryDto, branchId: string): Promise<ProductListResponse> {
     if (query.categoryId) {
       this.authorizationService.validateUuid(query.categoryId, "INVALID_CATEGORY_ID");
     }
     const products = await this.prisma.product.findMany({
       where: {
-        branchId: context.branch.id,
+        branchId,
         deletedAt: null,
         ...(query.categoryId ? { categoryId: query.categoryId } : {}),
         ...(this.isActiveOnly(query) ? { status: ProductStatus.ACTIVE, category: { isActive: true, deletedAt: null } } : {}),
@@ -137,9 +146,21 @@ export class MenuService {
   }
 
   async getProduct(id: string, context: BranchContext): Promise<ProductResponse> {
+    return this.getProductForBranch(id, context.branch.id);
+  }
+
+  async getProductForQrSession(id: string, context: QrSessionContext): Promise<ProductResponse> {
+    const product = await this.getProductForBranch(id, context.branchId);
+    if (!product.availability.isAvailable) {
+      throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+    }
+    return product;
+  }
+
+  async getProductForBranch(id: string, branchId: string): Promise<ProductResponse> {
     this.authorizationService.validateUuid(id, "INVALID_PRODUCT_ID");
     const product = await this.prisma.product.findFirst({
-      where: { id, branchId: context.branch.id, deletedAt: null },
+      where: { id, branchId, deletedAt: null },
       include: this.productInclude()
     });
     if (!product) {
