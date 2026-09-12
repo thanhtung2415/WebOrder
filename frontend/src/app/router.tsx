@@ -11,6 +11,7 @@ import { CustomerMenuPage } from "../customer/CustomerMenuPage";
 import { CustomerQrEntryPage } from "../customer/CustomerQrEntryPage";
 import { SetupPage } from "../setup/setup-page";
 import { SetupStatusGuard } from "../setup/setup-status-guard";
+import { BarQueuePage, KitchenQueuePage } from "../staff/QueuePages";
 import { StaffLayout } from "../staff/StaffLayout";
 import { ShellPage } from "./shell-page";
 
@@ -43,6 +44,8 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
       element: <StaffLayout />,
       children: [
         { index: true, element: <ShellPage namespace="staff" /> },
+        { path: "bar", element: <BarQueuePage /> },
+        { path: "kitchen", element: <KitchenQueuePage /> },
         { path: "tables", element: <TableManagementPage /> }
       ]
     },

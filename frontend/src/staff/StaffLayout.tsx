@@ -91,6 +91,12 @@ export function StaffLayout(): ReactElement {
               <NavLink className={({ isActive }) => navClass(isActive)} to="/staff/tables">
                 Tables
               </NavLink>
+              <NavLink className={({ isActive }) => navClass(isActive)} to="/staff/bar">
+                Bar
+              </NavLink>
+              <NavLink className={({ isActive }) => navClass(isActive)} to="/staff/kitchen">
+                Kitchen
+              </NavLink>
             </nav>
           </div>
           <div className="flex flex-wrap items-center gap-2">

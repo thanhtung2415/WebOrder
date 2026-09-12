@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactElement } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Product, ProductOptionGroup } from "../admin/menu-api";
+import { useOrderRealtime } from "../orders/use-order-realtime";
 import { ApiClientError } from "../services/api-client";
 import {
   addCustomerCartItem,
@@ -13,6 +14,7 @@ import {
   updateCustomerCartItem
 } from "./customer-cart-api";
 import { fetchCustomerMenu } from "./customer-menu-api";
+import { confirmCustomerOrder, fetchCustomerSessionOrders, type Order, type OrderItemStatus } from "./customer-order-api";
 
 interface ProductDraft {
   quantity: number;
@@ -51,6 +53,18 @@ export function CustomerMenuPage({
     queryFn: () => fetchCustomerCart(qrSessionToken, cartToken ?? window.sessionStorage.getItem(cartStorageKey) ?? undefined),
     enabled: Boolean(qrSessionToken)
   });
+  const tableSessionId = cartQuery.data?.tableSessionId;
+  const ordersQuery = useQuery({
+    queryKey: ["customer-orders", qrSessionToken, tableSessionId],
+    queryFn: () => fetchCustomerSessionOrders(qrSessionToken, tableSessionId ?? ""),
+    enabled: Boolean(qrSessionToken && tableSessionId),
+    refetchInterval: 5_000
+  });
+  const refetchOrderState = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["customer-orders", qrSessionToken] });
+    void queryClient.invalidateQueries({ queryKey: ["customer-cart", qrSessionToken] });
+  }, [queryClient, qrSessionToken]);
+  useOrderRealtime(branchId, refetchOrderState);
 
   useEffect(() => {
     if (!cartQuery.data?.token) {
@@ -102,6 +116,25 @@ export function CustomerMenuPage({
     },
     onError: (error) => setCartError(errorMessage(error, "Không xoá được món."))
   });
+  const confirmMutation = useMutation({
+    mutationFn: (token: string) => confirmCustomerOrder(qrSessionToken, token, createIdempotencyKey()),
+    onSuccess: async () => {
+      window.sessionStorage.removeItem(cartStorageKey);
+      setCartToken(undefined);
+      setCartError(null);
+      await queryClient.invalidateQueries({ queryKey: ["customer-cart", qrSessionToken] });
+      await queryClient.invalidateQueries({ queryKey: ["customer-orders", qrSessionToken] });
+    },
+    onError: (error) => setCartError(errorMessage(error, "Không gửi được order."))
+  });
+  const confirmCurrentCart = (): void => {
+    const token = cartQuery.data?.token ?? cartToken ?? window.sessionStorage.getItem(cartStorageKey) ?? "";
+    if (!token) {
+      setCartError("Không tìm thấy giỏ để gửi order.");
+      return;
+    }
+    confirmMutation.mutate(token);
+  };
 
   const products = useMemo(() => menuQuery.data ?? [], [menuQuery.data]);
   const categories = useMemo(() => {
@@ -183,15 +216,20 @@ export function CustomerMenuPage({
           {!menuQuery.isLoading && !menuQuery.error && visibleProducts.length === 0 ? <p className="rounded-md border border-border p-4 text-sm text-muted-foreground">Chưa có món phù hợp.</p> : null}
         </div>
 
-        <CustomerCartPanel
-          cart={cartQuery.data}
-          isLoading={cartQuery.isLoading}
-          error={cartError ?? (cartQuery.error ? errorMessage(cartQuery.error, "Không tải được giỏ.") : null)}
-          isMutating={updateMutation.isPending || deleteMutation.isPending}
-          onUpdateQuantity={(itemId, quantity) => updateMutation.mutate({ itemId, quantity })}
-          onUpdateNote={(itemId, note) => updateMutation.mutate({ itemId, note })}
-          onDelete={(itemId) => deleteMutation.mutate(itemId)}
-        />
+        <div className="grid content-start gap-4">
+          <CustomerCartPanel
+            cart={cartQuery.data}
+            isLoading={cartQuery.isLoading}
+            error={cartError ?? (cartQuery.error ? errorMessage(cartQuery.error, "Không tải được giỏ.") : null)}
+            isMutating={updateMutation.isPending || deleteMutation.isPending || confirmMutation.isPending}
+            isConfirming={confirmMutation.isPending}
+            onConfirm={confirmCurrentCart}
+            onUpdateQuantity={(itemId, quantity) => updateMutation.mutate({ itemId, quantity })}
+            onUpdateNote={(itemId, note) => updateMutation.mutate({ itemId, note })}
+            onDelete={(itemId) => deleteMutation.mutate(itemId)}
+          />
+          <CustomerOrderStatusPanel orders={ordersQuery.data?.items ?? []} isLoading={ordersQuery.isLoading} error={ordersQuery.error} />
+        </div>
       </div>
 
       {selectedProduct ? (
@@ -282,6 +320,8 @@ function CustomerCartPanel({
   isLoading,
   error,
   isMutating,
+  isConfirming,
+  onConfirm,
   onUpdateQuantity,
   onUpdateNote,
   onDelete
@@ -290,10 +330,14 @@ function CustomerCartPanel({
   isLoading: boolean;
   error: string | null;
   isMutating: boolean;
+  isConfirming: boolean;
+  onConfirm: () => void;
   onUpdateQuantity: (itemId: string, quantity: number) => void;
   onUpdateNote: (itemId: string, note: string) => void;
   onDelete: (itemId: string) => void;
 }): ReactElement {
+  const hasItems = Boolean(cart?.items.length);
+  const hasBlockedItem = Boolean(cart?.items.some((item) => item.reservationStatus === "EXPIRED" || item.reservationStatus === "UNAVAILABLE"));
   return (
     <aside className="grid content-start gap-3 rounded-md border border-border p-4">
       <div className="flex items-center justify-between gap-3">
@@ -309,8 +353,49 @@ function CustomerCartPanel({
       {cart?.items.some((item) => item.reservationStatus === "EXPIRED" || item.reservationStatus === "UNAVAILABLE") ? (
         <p className="text-xs text-red-700">Có món đã hết thời gian giữ hoặc không còn đủ nguyên liệu. Vui lòng cập nhật lại số lượng hoặc xoá món.</p>
       ) : null}
+      <button className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={!hasItems || hasBlockedItem || isMutating} onClick={onConfirm}>
+        {isConfirming ? "Đang gửi order..." : "Xác nhận order"}
+      </button>
     </aside>
   );
+}
+
+function CustomerOrderStatusPanel({ orders, isLoading, error }: { orders: Order[]; isLoading: boolean; error: unknown }): ReactElement {
+  return (
+    <aside className="grid content-start gap-3 rounded-md border border-border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Đơn đã gửi</h2>
+        <span className="text-xs text-muted-foreground">{orders.length} order</span>
+      </div>
+      {isLoading ? <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">Đang tải trạng thái...</p> : null}
+      {error ? <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorMessage(error, "Không tải được trạng thái order.")}</p> : null}
+      {!isLoading && !orders.length ? <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">Chưa có order nào được gửi.</p> : null}
+      {orders.map((order) => (
+        <article key={order.id} className="grid gap-2 rounded-md border border-border p-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold">{order.orderNumber}</h3>
+            <span className="text-sm font-semibold">{formatMoney(order.subtotal)}</span>
+          </div>
+          <div className="grid gap-2">
+            {order.items.map((item) => (
+              <div key={item.id} className="flex items-start justify-between gap-3 text-sm">
+                <span>
+                  {item.quantity} x {item.productNameSnapshot}
+                  {item.options.length ? <span className="block text-xs text-muted-foreground">{item.options.map((option) => option.optionNameSnapshot).join(", ")}</span> : null}
+                </span>
+                <StatusPill status={item.status} />
+              </div>
+            ))}
+          </div>
+        </article>
+      ))}
+    </aside>
+  );
+}
+
+function StatusPill({ status }: { status: OrderItemStatus }): ReactElement {
+  const tone = status === "SERVED" ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200" : status === "CANCELLED" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" : status === "READY" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200" : "bg-muted text-muted-foreground";
+  return <span className={`rounded-md px-2 py-1 text-xs font-medium ${tone}`}>{statusLabel(status)}</span>;
 }
 
 function CartItemRow({
@@ -398,4 +483,27 @@ function formatMoney(value: string): string {
 function formatDelta(value: string): string {
   const amount = Number(value);
   return amount > 0 ? `+${formatMoney(value)}` : "Không đổi giá";
+}
+
+function statusLabel(status: OrderItemStatus): string {
+  const labels: Record<OrderItemStatus, string> = {
+    NEW: "Mới",
+    PREPARING: "Đang làm",
+    READY: "Sẵn sàng",
+    SERVED: "Đã phục vụ",
+    CANCELLED: "Đã hủy"
+  };
+  return labels[status];
+}
+
+function createIdempotencyKey(): string {
+  try {
+    const key = globalThis.crypto?.randomUUID?.();
+    if (key) {
+      return key;
+    }
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

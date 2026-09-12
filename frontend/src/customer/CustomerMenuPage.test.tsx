@@ -9,6 +9,8 @@ const fetchCustomerCartMock = vi.fn();
 const addCustomerCartItemMock = vi.fn();
 const updateCustomerCartItemMock = vi.fn();
 const deleteCustomerCartItemMock = vi.fn();
+const confirmCustomerOrderMock = vi.fn();
+const fetchCustomerSessionOrdersMock = vi.fn();
 
 vi.mock("./customer-menu-api", () => ({
   fetchCustomerMenu: (...args: unknown[]) => fetchCustomerMenuMock(...args)
@@ -19,6 +21,15 @@ vi.mock("./customer-cart-api", () => ({
   addCustomerCartItem: (...args: unknown[]) => addCustomerCartItemMock(...args),
   updateCustomerCartItem: (...args: unknown[]) => updateCustomerCartItemMock(...args),
   deleteCustomerCartItem: (...args: unknown[]) => deleteCustomerCartItemMock(...args)
+}));
+
+vi.mock("./customer-order-api", () => ({
+  confirmCustomerOrder: (...args: unknown[]) => confirmCustomerOrderMock(...args),
+  fetchCustomerSessionOrders: (...args: unknown[]) => fetchCustomerSessionOrdersMock(...args)
+}));
+
+vi.mock("../orders/use-order-realtime", () => ({
+  useOrderRealtime: vi.fn()
 }));
 
 function renderCustomerMenu(path: string): void {
@@ -47,7 +58,10 @@ describe("CustomerMenuPage", () => {
     addCustomerCartItemMock.mockReset();
     updateCustomerCartItemMock.mockReset();
     deleteCustomerCartItemMock.mockReset();
+    confirmCustomerOrderMock.mockReset();
+    fetchCustomerSessionOrdersMock.mockReset();
     fetchCustomerCartMock.mockResolvedValue(emptyCart());
+    fetchCustomerSessionOrdersMock.mockResolvedValue({ items: [] });
   });
 
   it("requires a QR session token before loading menu data", async () => {
@@ -119,6 +133,23 @@ describe("CustomerMenuPage", () => {
 
     await waitFor(() => expect(screen.queryByText("Đang tải giỏ...")).not.toBeInTheDocument());
     expect(screen.getByText("Giữ món đã hết hạn.")).toBeInTheDocument();
+  });
+
+  it("confirms the current cart and refreshes customer order status", async () => {
+    fetchCustomerMenuMock.mockResolvedValue([]);
+    fetchCustomerCartMock.mockImplementation(() => Promise.resolve(cartWithItem()));
+    confirmCustomerOrderMock.mockResolvedValue(sampleOrder());
+    fetchCustomerSessionOrdersMock.mockResolvedValue({ items: [sampleOrder()] });
+    renderCustomerMenu("/customer?branchId=branch-id&qrSessionToken=qr-token");
+
+    await screen.findByText("Bạc xỉu");
+    const confirmButton = screen.getByRole("button", { name: "Xác nhận order" });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(confirmCustomerOrderMock).toHaveBeenCalledWith("qr-token", "cart-token", expect.any(String)));
+    expect(await screen.findByText("ORD-1")).toBeInTheDocument();
+    expect(screen.getByText("Mới")).toBeInTheDocument();
   });
 });
 
@@ -192,5 +223,46 @@ function cartWithItem(overrides: { token?: string; reservationStatus?: "ACTIVE" 
         updatedAt: new Date().toISOString()
       }
     ]
+  };
+}
+
+function sampleOrder() {
+  return {
+    id: "order-id",
+    branchId: "branch-id",
+    tableSessionId: "session-id",
+    cartId: "cart-id",
+    orderNumber: "ORD-1",
+    source: "CUSTOMER",
+    createdById: null,
+    table: { id: "table-id", code: "T01", displayName: "T01" },
+    items: [
+      {
+        id: "order-item-id",
+        productId: "product-id",
+        productCodeSnapshot: "BAC_XIU",
+        productNameSnapshot: "Bạc xỉu",
+        processingArea: "BAR",
+        quantity: 1,
+        baseUnitPrice: "35000.00",
+        optionUnitPrice: "0.00",
+        finalUnitPrice: "35000.00",
+        lineSubtotal: "35000.00",
+        note: null,
+        isTakeaway: false,
+        status: "NEW",
+        preparingAt: null,
+        readyAt: null,
+        servedAt: null,
+        cancelledAt: null,
+        cancelReason: null,
+        options: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ],
+    subtotal: "35000.00",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
 }
