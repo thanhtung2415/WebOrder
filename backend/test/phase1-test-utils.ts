@@ -9,6 +9,7 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
     TRUNCATE TABLE
       order_item_status_history,
       order_item_options,
+      service_requests,
       inventory_reservations,
       inventory_transactions,
       order_items,

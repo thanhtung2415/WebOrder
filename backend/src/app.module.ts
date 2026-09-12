@@ -13,6 +13,7 @@ import { MenuModule } from "./modules/menu/menu.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { RecipesModule } from "./modules/recipes/recipes.module";
 import { RolesModule } from "./modules/roles/roles.module";
+import { ServiceRequestsModule } from "./modules/service-requests/service-requests.module";
 import { SetupModule } from "./modules/setup/setup.module";
 import { StaffModule } from "./modules/staff/staff.module";
 import { TablesModule } from "./modules/tables/tables.module";
@@ -41,7 +42,8 @@ import { RequestLoggingMiddleware } from "./common/middleware/request-logging.mi
     InventoryModule,
     TablesModule,
     StaffModule,
-    RolesModule
+    RolesModule,
+    ServiceRequestsModule
   ],
   providers: [
     {
