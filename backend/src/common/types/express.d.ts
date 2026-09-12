@@ -5,5 +5,6 @@ declare namespace Express {
     branchContext?: import("../../modules/auth/branch-context").BranchContext;
     qrSessionContext?: import("../../modules/tables/table.types").QrSessionContext;
     cartAccessContext?: import("../../modules/cart/cart.types").CartAccessContext;
+    orderAccessContext?: import("../../modules/orders/order.types").OrderAccessContext;
   }
 }

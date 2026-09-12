@@ -7,11 +7,15 @@ import { CompleteSetupDto } from "../src/modules/setup/dto/complete-setup.dto";
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
+      order_item_status_history,
+      order_item_options,
       inventory_reservations,
+      inventory_transactions,
+      order_items,
+      orders,
       cart_item_options,
       cart_items,
       carts,
-      inventory_transactions,
       stocktake_items,
       stocktakes,
       inventories,

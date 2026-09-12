@@ -10,6 +10,7 @@ import { BranchesModule } from "./modules/branches/branches.module";
 import { CartModule } from "./modules/cart/cart.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { MenuModule } from "./modules/menu/menu.module";
+import { OrdersModule } from "./modules/orders/orders.module";
 import { RecipesModule } from "./modules/recipes/recipes.module";
 import { RolesModule } from "./modules/roles/roles.module";
 import { SetupModule } from "./modules/setup/setup.module";
@@ -34,6 +35,7 @@ import { RequestLoggingMiddleware } from "./common/middleware/request-logging.mi
     SetupModule,
     BranchesModule,
     CartModule,
+    OrdersModule,
     MenuModule,
     RecipesModule,
     InventoryModule,
