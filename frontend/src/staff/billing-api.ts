@@ -2,6 +2,8 @@ import { apiClient } from "../services/api-client";
 import { createRequestId } from "../utils/request-id";
 
 export type BillStatus = "DRAFT" | "ISSUED" | "PAID" | "MERGED" | "VOID";
+export type DiscountType = "PERCENT" | "FIXED_AMOUNT";
+export type VoucherStatus = "ACTIVE" | "INACTIVE";
 
 export interface StaffBillingContext {
   accessToken: string;
@@ -24,6 +26,45 @@ export interface BillItem {
   lineAmount: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Voucher {
+  id: string;
+  branchId: string;
+  code: string;
+  name: string;
+  discountType: DiscountType;
+  discountValue: string;
+  maximumDiscount: string | null;
+  minimumSubtotal: string;
+  usageLimit: number | null;
+  startsAt: string;
+  endsAt: string | null;
+  status: VoucherStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillAdjustment {
+  id: string;
+  billId: string;
+  source: "VOUCHER" | "DIRECT_DISCOUNT";
+  discountType: DiscountType;
+  discountValue: string;
+  discountAmount: string;
+  voucherId: string | null;
+  codeSnapshot: string | null;
+  status: "ACTIVE" | "REVERSED";
+  appliedById: string;
+  reversedById: string | null;
+  reversedAt: string | null;
+  reverseReason: string | null;
+  isOverride: boolean;
+  overrideById: string | null;
+  overrideReason: string | null;
+  overrideBefore: unknown;
+  overrideAfter: unknown;
+  createdAt: string;
 }
 
 export interface Bill {
@@ -50,6 +91,7 @@ export interface Bill {
   mergedAt: string | null;
   mergeReason: string | null;
   items: BillItem[];
+  adjustments: BillAdjustment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -78,6 +120,23 @@ export interface SplitBillPartInput {
 export interface SplitBillResponse {
   sourceBill: Bill;
   bills: Bill[];
+}
+
+export interface VoucherListResponse {
+  items: Voucher[];
+}
+
+export interface CreateVoucherInput {
+  code: string;
+  name: string;
+  discountType: DiscountType;
+  discountValue: number;
+  maximumDiscount?: number;
+  minimumSubtotal?: number;
+  usageLimit?: number;
+  startsAt: string;
+  endsAt?: string;
+  status?: VoucherStatus;
 }
 
 export async function fetchSessionBilling(context: StaffBillingContext, tableSessionId: string): Promise<SessionBilling> {
@@ -131,6 +190,67 @@ export async function mergeBills(context: StaffBillingContext, targetBillId: str
 
 export async function voidBill(context: StaffBillingContext, billId: string, reason: string): Promise<Bill> {
   const response = await apiClient.request<Bill>(`/bills/${billId}/voidance`, {
+    method: "POST",
+    accessToken: context.accessToken,
+    branchId: context.branchId,
+    idempotencyKey: createRequestId(),
+    body: { reason }
+  });
+  return response.data;
+}
+
+export async function fetchVouchers(context: StaffBillingContext): Promise<VoucherListResponse> {
+  const response = await apiClient.request<VoucherListResponse>("/vouchers", {
+    accessToken: context.accessToken,
+    branchId: context.branchId
+  });
+  return response.data;
+}
+
+export async function createVoucher(context: StaffBillingContext, input: CreateVoucherInput): Promise<Voucher> {
+  const response = await apiClient.request<Voucher>("/vouchers", {
+    method: "POST",
+    accessToken: context.accessToken,
+    branchId: context.branchId,
+    body: input
+  });
+  return response.data;
+}
+
+export async function updateVoucherStatus(context: StaffBillingContext, voucherId: string, status: VoucherStatus): Promise<Voucher> {
+  const response = await apiClient.request<Voucher>(`/vouchers/${voucherId}`, {
+    method: "PATCH",
+    accessToken: context.accessToken,
+    branchId: context.branchId,
+    body: { status }
+  });
+  return response.data;
+}
+
+export async function applyVoucher(context: StaffBillingContext, billId: string, voucherCode: string, overrideReason?: string): Promise<Bill> {
+  const response = await apiClient.request<Bill>(`/bills/${billId}/voucher-applications`, {
+    method: "POST",
+    accessToken: context.accessToken,
+    branchId: context.branchId,
+    idempotencyKey: createRequestId(),
+    body: { voucherCode, ...(overrideReason?.trim() ? { overrideReason: overrideReason.trim() } : {}) }
+  });
+  return response.data;
+}
+
+export async function applyDirectDiscount(context: StaffBillingContext, billId: string, discountType: DiscountType, discountValue: number, reason: string, overrideReason?: string): Promise<Bill> {
+  const response = await apiClient.request<Bill>(`/bills/${billId}/direct-discounts`, {
+    method: "POST",
+    accessToken: context.accessToken,
+    branchId: context.branchId,
+    idempotencyKey: createRequestId(),
+    body: { discountType, discountValue, reason, ...(overrideReason?.trim() ? { overrideReason: overrideReason.trim() } : {}) }
+  });
+  return response.data;
+}
+
+export async function reverseAdjustment(context: StaffBillingContext, adjustmentId: string, reason: string): Promise<Bill> {
+  const response = await apiClient.request<Bill>(`/bill-adjustments/${adjustmentId}/reversal`, {
     method: "POST",
     accessToken: context.accessToken,
     branchId: context.branchId,

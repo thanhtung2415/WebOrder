@@ -4,8 +4,8 @@ import { useCallback, useMemo, useState } from "react";
 import { useAdminContext } from "../admin/admin-context";
 import { useOrderRealtime } from "../orders/use-order-realtime";
 import { ApiClientError } from "../services/api-client";
-import type { Bill, BillItem, BillStatus, SessionBilling } from "./billing-api";
-import { createBill, fetchSessionBilling, issueBill, mergeBills, splitBill, voidBill } from "./billing-api";
+import type { Bill, BillAdjustment, BillItem, BillStatus, DiscountType, SessionBilling, Voucher, VoucherStatus } from "./billing-api";
+import { applyDirectDiscount, applyVoucher, createBill, createVoucher, fetchSessionBilling, fetchVouchers, issueBill, mergeBills, reverseAdjustment, splitBill, updateVoucherStatus, voidBill } from "./billing-api";
 
 type FeedbackState = { type: "success" | "error"; message: string } | null;
 
@@ -19,6 +19,9 @@ export function BillingPage(): ReactElement {
   const canSplit = admin.hasPermission("BILL_SPLIT");
   const canMerge = admin.hasPermission("BILL_MERGE");
   const canVoid = admin.hasPermission("BILL_VOID");
+  const canVoucherManage = admin.hasPermission("VOUCHER_MANAGE");
+  const canDiscountApply = admin.hasPermission("DISCOUNT_APPLY");
+  const canDiscountOverride = admin.hasPermission("DISCOUNT_OVERRIDE");
   const [tableSessionId, setTableSessionId] = useState("");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [splitBillId, setSplitBillId] = useState<string | null>(null);
@@ -27,6 +30,25 @@ export function BillingPage(): ReactElement {
   const [mergeSourceIds, setMergeSourceIds] = useState<string[]>([]);
   const [mergeReason, setMergeReason] = useState("Gộp hóa đơn theo yêu cầu thu ngân");
   const [voidReason, setVoidReason] = useState("Hủy hóa đơn theo yêu cầu thu ngân");
+  const [discountBillId, setDiscountBillId] = useState<string | null>(null);
+  const [voucherCode, setVoucherCode] = useState("");
+  const [directDiscountType, setDirectDiscountType] = useState<DiscountType>("FIXED_AMOUNT");
+  const [directDiscountValue, setDirectDiscountValue] = useState(1000);
+  const [directDiscountReason, setDirectDiscountReason] = useState("Chiết khấu trực tiếp");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [reverseReason, setReverseReason] = useState("Hoàn tác chiết khấu");
+  const [voucherDraft, setVoucherDraft] = useState({
+    code: "",
+    name: "",
+    discountType: "FIXED_AMOUNT" as DiscountType,
+    discountValue: 1000,
+    maximumDiscount: "",
+    minimumSubtotal: 0,
+    usageLimit: "",
+    startsAt: toLocalInputValue(new Date()),
+    endsAt: "",
+    status: "ACTIVE" as VoucherStatus
+  });
 
   const trimmedSessionId = tableSessionId.trim();
   const billingQuery = useQuery({
@@ -35,9 +57,15 @@ export function BillingPage(): ReactElement {
     enabled: canRead && trimmedSessionId.length > 0,
     refetchInterval: trimmedSessionId ? 5_000 : false
   });
+  const voucherQuery = useQuery({
+    queryKey: ["vouchers", context],
+    queryFn: () => fetchVouchers(context),
+    enabled: canVoucherManage
+  });
 
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["billing"] });
+    void queryClient.invalidateQueries({ queryKey: ["vouchers"] });
   }, [queryClient]);
   useOrderRealtime(admin.activeBranchId, refresh);
 
@@ -94,6 +122,64 @@ export function BillingPage(): ReactElement {
     onError: (error) => setFeedback({ type: "error", message: errorMessage(error) })
   });
 
+  const voucherCreateMutation = useMutation({
+    mutationFn: () =>
+      createVoucher(context, {
+        code: voucherDraft.code,
+        name: voucherDraft.name,
+        discountType: voucherDraft.discountType,
+        discountValue: voucherDraft.discountValue,
+        ...(voucherDraft.maximumDiscount.trim() ? { maximumDiscount: Number(voucherDraft.maximumDiscount) } : {}),
+        minimumSubtotal: voucherDraft.minimumSubtotal,
+        ...(voucherDraft.usageLimit.trim() ? { usageLimit: Number(voucherDraft.usageLimit) } : {}),
+        startsAt: new Date(voucherDraft.startsAt).toISOString(),
+        ...(voucherDraft.endsAt.trim() ? { endsAt: new Date(voucherDraft.endsAt).toISOString() } : {}),
+        status: voucherDraft.status
+      }),
+    onSuccess: () => {
+      setFeedback({ type: "success", message: "Đã tạo voucher." });
+      setVoucherDraft((current) => ({ ...current, code: "", name: "" }));
+      refresh();
+    },
+    onError: (error) => setFeedback({ type: "error", message: errorMessage(error) })
+  });
+
+  const voucherStatusMutation = useMutation({
+    mutationFn: ({ voucherId, status }: { voucherId: string; status: "ACTIVE" | "INACTIVE" }) => updateVoucherStatus(context, voucherId, status),
+    onSuccess: () => {
+      setFeedback({ type: "success", message: "Đã cập nhật voucher." });
+      refresh();
+    },
+    onError: (error) => setFeedback({ type: "error", message: errorMessage(error) })
+  });
+
+  const applyVoucherMutation = useMutation({
+    mutationFn: (billId: string) => applyVoucher(context, billId, voucherCode, overrideReason),
+    onSuccess: () => {
+      setFeedback({ type: "success", message: "Đã áp dụng voucher." });
+      refresh();
+    },
+    onError: (error) => setFeedback({ type: "error", message: errorMessage(error) })
+  });
+
+  const directDiscountMutation = useMutation({
+    mutationFn: (billId: string) => applyDirectDiscount(context, billId, directDiscountType, directDiscountValue, directDiscountReason, overrideReason),
+    onSuccess: () => {
+      setFeedback({ type: "success", message: "Đã áp dụng chiết khấu." });
+      refresh();
+    },
+    onError: (error) => setFeedback({ type: "error", message: errorMessage(error) })
+  });
+
+  const reverseAdjustmentMutation = useMutation({
+    mutationFn: (adjustmentId: string) => reverseAdjustment(context, adjustmentId, reverseReason),
+    onSuccess: () => {
+      setFeedback({ type: "success", message: "Đã hoàn tác adjustment." });
+      refresh();
+    },
+    onError: (error) => setFeedback({ type: "error", message: errorMessage(error) })
+  });
+
   if (!canRead) {
     return <ForbiddenPanel />;
   }
@@ -101,7 +187,18 @@ export function BillingPage(): ReactElement {
   const billing = billingQuery.data;
   const mutableBills = billing?.bills.filter(isMutableBill) ?? [];
   const splitTarget = billing?.bills.find((bill) => bill.id === splitBillId) ?? null;
-  const isBusy = createMutation.isPending || issueMutation.isPending || splitMutation.isPending || mergeMutation.isPending || voidMutation.isPending;
+  const discountTarget = billing?.bills.find((bill) => bill.id === discountBillId) ?? null;
+  const isBusy =
+    createMutation.isPending ||
+    issueMutation.isPending ||
+    splitMutation.isPending ||
+    mergeMutation.isPending ||
+    voidMutation.isPending ||
+    voucherCreateMutation.isPending ||
+    voucherStatusMutation.isPending ||
+    applyVoucherMutation.isPending ||
+    directDiscountMutation.isPending ||
+    reverseAdjustmentMutation.isPending;
 
   return (
     <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-6">
@@ -137,6 +234,17 @@ export function BillingPage(): ReactElement {
 
       {billing ? (
         <>
+          {canVoucherManage ? (
+            <VoucherManagementPanel
+              vouchers={voucherQuery.data?.items ?? []}
+              draft={voucherDraft}
+              isLoading={voucherQuery.isLoading}
+              isBusy={isBusy}
+              onDraft={setVoucherDraft}
+              onCreate={() => voucherCreateMutation.mutate()}
+              onStatus={(voucherId, status) => voucherStatusMutation.mutate({ voucherId, status })}
+            />
+          ) : null}
           <UnbilledPanel billing={billing} canManage={canManage} isBusy={isBusy} onCreate={() => createMutation.mutate()} />
           <MergePanel
             bills={mutableBills}
@@ -162,6 +270,28 @@ export function BillingPage(): ReactElement {
             }}
             onSubmit={() => splitTarget && splitMutation.mutate(splitTarget)}
           />
+          <DiscountPanel
+            bill={discountTarget}
+            canApply={canDiscountApply}
+            canOverride={canDiscountOverride}
+            isBusy={isBusy}
+            voucherCode={voucherCode}
+            directDiscountType={directDiscountType}
+            directDiscountValue={directDiscountValue}
+            directDiscountReason={directDiscountReason}
+            overrideReason={overrideReason}
+            reverseReason={reverseReason}
+            onVoucherCode={setVoucherCode}
+            onDirectDiscountType={setDirectDiscountType}
+            onDirectDiscountValue={setDirectDiscountValue}
+            onDirectDiscountReason={setDirectDiscountReason}
+            onOverrideReason={setOverrideReason}
+            onReverseReason={setReverseReason}
+            onApplyVoucher={() => discountTarget && applyVoucherMutation.mutate(discountTarget.id)}
+            onApplyDirect={() => discountTarget && directDiscountMutation.mutate(discountTarget.id)}
+            onReverse={(adjustmentId) => reverseAdjustmentMutation.mutate(adjustmentId)}
+            onClose={() => setDiscountBillId(null)}
+          />
           <section className="grid gap-3 lg:grid-cols-2">
             {billing.bills.length ? (
               billing.bills.map((bill) => (
@@ -171,6 +301,7 @@ export function BillingPage(): ReactElement {
                   canIssue={canIssue}
                   canSplit={canSplit}
                   canVoid={canVoid}
+                  canDiscountApply={canDiscountApply}
                   isBusy={isBusy}
                   voidReason={voidReason}
                   onVoidReason={setVoidReason}
@@ -179,6 +310,7 @@ export function BillingPage(): ReactElement {
                     setSplitBillId(bill.id);
                     setSplitDraft(defaultSplitDraft(bill));
                   }}
+                  onDiscount={() => setDiscountBillId(bill.id)}
                   onVoid={() => voidMutation.mutate(bill.id)}
                 />
               ))
@@ -228,6 +360,97 @@ function UnbilledPanel({
       ) : (
         <p className="text-sm text-muted-foreground">Không còn món chưa lên bill.</p>
       )}
+    </section>
+  );
+}
+
+function VoucherManagementPanel({
+  vouchers,
+  draft,
+  isLoading,
+  isBusy,
+  onDraft,
+  onCreate,
+  onStatus
+}: {
+  vouchers: Voucher[];
+  draft: {
+    code: string;
+    name: string;
+    discountType: DiscountType;
+    discountValue: number;
+    maximumDiscount: string;
+    minimumSubtotal: number;
+    usageLimit: string;
+    startsAt: string;
+    endsAt: string;
+    status: VoucherStatus;
+  };
+  isLoading: boolean;
+  isBusy: boolean;
+  onDraft: (draft: {
+    code: string;
+    name: string;
+    discountType: DiscountType;
+    discountValue: number;
+    maximumDiscount: string;
+    minimumSubtotal: number;
+    usageLimit: string;
+    startsAt: string;
+    endsAt: string;
+    status: VoucherStatus;
+  }) => void;
+  onCreate: () => void;
+  onStatus: (voucherId: string, status: "ACTIVE" | "INACTIVE") => void;
+}): ReactElement {
+  const canCreate = Boolean(draft.code.trim() && draft.name.trim() && draft.discountValue > 0 && draft.startsAt);
+  return (
+    <section className="grid gap-4 rounded-md border border-border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Voucher</h2>
+        <button className={buttonClass} type="button" disabled={isBusy || !canCreate} onClick={onCreate}>
+          Tạo voucher
+        </button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        <input className={inputClass} placeholder="Mã voucher" value={draft.code} onChange={(event) => onDraft({ ...draft, code: event.target.value })} />
+        <input className={inputClass} placeholder="Tên voucher" value={draft.name} onChange={(event) => onDraft({ ...draft, name: event.target.value })} />
+        <select className={inputClass} value={draft.discountType} onChange={(event) => onDraft({ ...draft, discountType: event.target.value as DiscountType })}>
+          <option value="FIXED_AMOUNT">Giảm tiền</option>
+          <option value="PERCENT">Giảm %</option>
+        </select>
+        <input className={inputClass} min={1} type="number" value={draft.discountValue} onChange={(event) => onDraft({ ...draft, discountValue: positiveNumber(event.target.value, 1) })} />
+        <input className={inputClass} placeholder="Giảm tối đa" value={draft.maximumDiscount} onChange={(event) => onDraft({ ...draft, maximumDiscount: event.target.value })} />
+        <input className={inputClass} min={0} type="number" value={draft.minimumSubtotal} onChange={(event) => onDraft({ ...draft, minimumSubtotal: positiveNumber(event.target.value, 0) })} />
+        <input className={inputClass} placeholder="Giới hạn lượt" value={draft.usageLimit} onChange={(event) => onDraft({ ...draft, usageLimit: event.target.value })} />
+        <select className={inputClass} value={draft.status} onChange={(event) => onDraft({ ...draft, status: event.target.value as VoucherStatus })}>
+          <option value="ACTIVE">ACTIVE</option>
+          <option value="INACTIVE">INACTIVE</option>
+        </select>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Bắt đầu
+          <input className={inputClass} type="datetime-local" value={draft.startsAt} onChange={(event) => onDraft({ ...draft, startsAt: event.target.value })} />
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          Kết thúc
+          <input className={inputClass} type="datetime-local" value={draft.endsAt} onChange={(event) => onDraft({ ...draft, endsAt: event.target.value })} />
+        </label>
+      </div>
+      {isLoading ? <p className="text-sm text-muted-foreground">Đang tải voucher...</p> : null}
+      <div className="grid gap-2">
+        {vouchers.map((voucher) => (
+          <div key={voucher.id} className="grid gap-2 rounded-md bg-muted/50 p-3 text-sm md:grid-cols-[1fr_repeat(5,auto)] md:items-center md:gap-4">
+            <span className="font-medium">{voucher.code}</span>
+            <span>{voucher.name}</span>
+            <span>{discountLabel(voucher.discountType, voucher.discountValue)}</span>
+            <span>Tối thiểu {formatMoney(voucher.minimumSubtotal)}</span>
+            <span>{voucher.status}</span>
+            <button className={buttonClass} type="button" disabled={isBusy} onClick={() => onStatus(voucher.id, voucher.status === "ACTIVE" ? "INACTIVE" : "ACTIVE")}>
+              {voucher.status === "ACTIVE" ? "Tắt" : "Bật"}
+            </button>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -355,27 +578,185 @@ function SplitPanel({
   );
 }
 
+function DiscountPanel({
+  bill,
+  canApply,
+  canOverride,
+  isBusy,
+  voucherCode,
+  directDiscountType,
+  directDiscountValue,
+  directDiscountReason,
+  overrideReason,
+  reverseReason,
+  onVoucherCode,
+  onDirectDiscountType,
+  onDirectDiscountValue,
+  onDirectDiscountReason,
+  onOverrideReason,
+  onReverseReason,
+  onApplyVoucher,
+  onApplyDirect,
+  onReverse,
+  onClose
+}: {
+  bill: Bill | null;
+  canApply: boolean;
+  canOverride: boolean;
+  isBusy: boolean;
+  voucherCode: string;
+  directDiscountType: DiscountType;
+  directDiscountValue: number;
+  directDiscountReason: string;
+  overrideReason: string;
+  reverseReason: string;
+  onVoucherCode: (value: string) => void;
+  onDirectDiscountType: (value: DiscountType) => void;
+  onDirectDiscountValue: (value: number) => void;
+  onDirectDiscountReason: (value: string) => void;
+  onOverrideReason: (value: string) => void;
+  onReverseReason: (value: string) => void;
+  onApplyVoucher: () => void;
+  onApplyDirect: () => void;
+  onReverse: (adjustmentId: string) => void;
+  onClose: () => void;
+}): ReactElement | null {
+  if (!bill || !canApply) {
+    return null;
+  }
+  const activeVoucher = bill.adjustments.find((adjustment) => adjustment.status === "ACTIVE" && adjustment.source === "VOUCHER");
+  const activeDirect = bill.adjustments.find((adjustment) => adjustment.status === "ACTIVE" && adjustment.source === "DIRECT_DISCOUNT");
+  const needsVoucherOverride = Boolean(activeDirect);
+  const needsDirectOverride = Boolean(activeVoucher);
+  return (
+    <section className="grid gap-4 rounded-md border border-border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Discount/VAT cho {bill.billNumber}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Backend trả về số tiền cuối cùng sau mỗi thao tác.</p>
+        </div>
+        <button className={buttonClass} type="button" onClick={onClose}>
+          Đóng
+        </button>
+      </div>
+      <BillBreakdown bill={bill} />
+      {canOverride ? (
+        <label className="grid gap-2 text-sm font-medium">
+          Lý do override
+          <input className={inputClass} placeholder="Bắt buộc khi dùng voucher + direct discount" value={overrideReason} onChange={(event) => onOverrideReason(event.target.value)} />
+        </label>
+      ) : null}
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-2 rounded-md bg-muted/50 p-3">
+          <h3 className="text-sm font-semibold">Apply Voucher</h3>
+          <input className={inputClass} placeholder="Mã voucher" value={voucherCode} onChange={(event) => onVoucherCode(event.target.value)} />
+          <button className={buttonClass} type="button" disabled={isBusy || !voucherCode.trim() || (needsVoucherOverride && (!canOverride || !overrideReason.trim()))} onClick={onApplyVoucher}>
+            Áp dụng voucher
+          </button>
+        </div>
+        <div className="grid gap-2 rounded-md bg-muted/50 p-3">
+          <h3 className="text-sm font-semibold">Direct Discount</h3>
+          <select className={inputClass} value={directDiscountType} onChange={(event) => onDirectDiscountType(event.target.value as DiscountType)}>
+            <option value="FIXED_AMOUNT">Giảm tiền</option>
+            <option value="PERCENT">Giảm %</option>
+          </select>
+          <input className={inputClass} min={1} type="number" value={directDiscountValue} onChange={(event) => onDirectDiscountValue(positiveNumber(event.target.value, 1))} />
+          <input className={inputClass} placeholder="Lý do chiết khấu" value={directDiscountReason} onChange={(event) => onDirectDiscountReason(event.target.value)} />
+          <button className={buttonClass} type="button" disabled={isBusy || directDiscountValue <= 0 || !directDiscountReason.trim() || (needsDirectOverride && (!canOverride || !overrideReason.trim()))} onClick={onApplyDirect}>
+            Áp dụng chiết khấu
+          </button>
+        </div>
+      </div>
+      <div className="grid gap-2">
+        <label className="grid gap-2 text-sm font-medium">
+          Lý do hoàn tác
+          <input className={inputClass} value={reverseReason} onChange={(event) => onReverseReason(event.target.value)} />
+        </label>
+        {bill.adjustments.length ? (
+          bill.adjustments.map((adjustment) => (
+            <AdjustmentRow key={adjustment.id} adjustment={adjustment} isBusy={isBusy} reverseReason={reverseReason} onReverse={onReverse} />
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">Bill chưa có adjustment.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function BillBreakdown({ bill }: { bill: Bill }): ReactElement {
+  return (
+    <dl className="grid gap-2 rounded-md bg-muted/50 p-3 text-sm md:grid-cols-2">
+      <BreakdownTerm label="Subtotal" value={formatMoney(bill.subtotal)} />
+      <BreakdownTerm label="Voucher" value={`-${formatMoney(bill.voucherDiscountAmount)}`} />
+      <BreakdownTerm label="Direct Discount" value={`-${formatMoney(bill.directDiscountAmount)}`} />
+      <BreakdownTerm label="Pre-VAT" value={formatMoney(bill.discountedAmount)} />
+      <BreakdownTerm label={`VAT ${Number(bill.vatRate).toFixed(0)}%`} value={formatMoney(bill.vatAmount)} />
+      <BreakdownTerm label="Total" value={formatMoney(bill.total)} />
+    </dl>
+  );
+}
+
+function BreakdownTerm({ label, value }: { label: string; value: string }): ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-medium">{value}</dd>
+    </div>
+  );
+}
+
+function AdjustmentRow({
+  adjustment,
+  isBusy,
+  reverseReason,
+  onReverse
+}: {
+  adjustment: BillAdjustment;
+  isBusy: boolean;
+  reverseReason: string;
+  onReverse: (adjustmentId: string) => void;
+}): ReactElement {
+  return (
+    <div className="grid gap-2 rounded-md bg-muted/50 p-3 text-sm md:grid-cols-[1fr_repeat(4,auto)] md:items-center md:gap-4">
+      <span className="font-medium">{adjustment.source === "VOUCHER" ? adjustment.codeSnapshot ?? "Voucher" : "Direct discount"}</span>
+      <span>{discountLabel(adjustment.discountType, adjustment.discountValue)}</span>
+      <span>-{formatMoney(adjustment.discountAmount)}</span>
+      <span>{adjustment.status}</span>
+      {adjustment.status === "ACTIVE" ? (
+        <button className={buttonClass} type="button" disabled={isBusy || !reverseReason.trim()} onClick={() => onReverse(adjustment.id)}>
+          Hoàn tác
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function BillCard({
   bill,
   canIssue,
   canSplit,
   canVoid,
+  canDiscountApply,
   isBusy,
   voidReason,
   onVoidReason,
   onIssue,
   onSplit,
+  onDiscount,
   onVoid
 }: {
   bill: Bill;
   canIssue: boolean;
   canSplit: boolean;
   canVoid: boolean;
+  canDiscountApply: boolean;
   isBusy: boolean;
   voidReason: string;
   onVoidReason: (reason: string) => void;
   onIssue: () => void;
   onSplit: () => void;
+  onDiscount: () => void;
   onVoid: () => void;
 }): ReactElement {
   const mutable = isMutableBill(bill);
@@ -388,6 +769,7 @@ function BillCard({
         </div>
         <StatusPill status={bill.status} />
       </div>
+      <BillBreakdown bill={bill} />
       <div className="grid gap-2">
         {bill.items.length ? bill.items.map((item) => <BillItemRow key={item.id} item={item} />) : <p className="text-sm text-muted-foreground">Bill không còn dòng món.</p>}
       </div>
@@ -402,6 +784,11 @@ function BillCard({
         {mutable && canSplit && bill.items.length ? (
           <button className={buttonClass} type="button" disabled={isBusy} onClick={onSplit}>
             Split
+          </button>
+        ) : null}
+        {mutable && canDiscountApply ? (
+          <button className={buttonClass} type="button" disabled={isBusy} onClick={onDiscount}>
+            Discount
           </button>
         ) : null}
       </div>
@@ -502,6 +889,23 @@ function clampNumber(value: string, min: number, max: number): number {
     return min;
   }
   return Math.min(max, Math.max(min, parsed));
+}
+
+function positiveNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function toLocalInputValue(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function discountLabel(type: DiscountType, value: string): string {
+  return type === "PERCENT" ? `${Number(value).toFixed(0)}%` : formatMoney(value);
 }
 
 function formatMoney(value: string): string {

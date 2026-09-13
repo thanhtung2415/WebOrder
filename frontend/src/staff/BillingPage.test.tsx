@@ -10,6 +10,12 @@ const issueBillMock = vi.fn();
 const splitBillMock = vi.fn();
 const mergeBillsMock = vi.fn();
 const voidBillMock = vi.fn();
+const fetchVouchersMock = vi.fn();
+const createVoucherMock = vi.fn();
+const updateVoucherStatusMock = vi.fn();
+const applyVoucherMock = vi.fn();
+const applyDirectDiscountMock = vi.fn();
+const reverseAdjustmentMock = vi.fn();
 const hasPermissionMock = vi.fn();
 
 vi.mock("../admin/admin-context", () => ({
@@ -34,7 +40,13 @@ vi.mock("./billing-api", async () => {
     issueBill: (...args: unknown[]) => issueBillMock(...args),
     splitBill: (...args: unknown[]) => splitBillMock(...args),
     mergeBills: (...args: unknown[]) => mergeBillsMock(...args),
-    voidBill: (...args: unknown[]) => voidBillMock(...args)
+    voidBill: (...args: unknown[]) => voidBillMock(...args),
+    fetchVouchers: (...args: unknown[]) => fetchVouchersMock(...args),
+    createVoucher: (...args: unknown[]) => createVoucherMock(...args),
+    updateVoucherStatus: (...args: unknown[]) => updateVoucherStatusMock(...args),
+    applyVoucher: (...args: unknown[]) => applyVoucherMock(...args),
+    applyDirectDiscount: (...args: unknown[]) => applyDirectDiscountMock(...args),
+    reverseAdjustment: (...args: unknown[]) => reverseAdjustmentMock(...args)
   };
 });
 
@@ -66,14 +78,26 @@ describe("BillingPage", () => {
     splitBillMock.mockReset();
     mergeBillsMock.mockReset();
     voidBillMock.mockReset();
+    fetchVouchersMock.mockReset();
+    createVoucherMock.mockReset();
+    updateVoucherStatusMock.mockReset();
+    applyVoucherMock.mockReset();
+    applyDirectDiscountMock.mockReset();
+    reverseAdjustmentMock.mockReset();
     hasPermissionMock.mockReset();
     hasPermissionMock.mockReturnValue(true);
     fetchSessionBillingMock.mockResolvedValue(sessionBilling());
+    fetchVouchersMock.mockResolvedValue({ items: [voucherFixture()] });
     createBillMock.mockResolvedValue(billFixture());
     issueBillMock.mockResolvedValue(billFixture({ status: "ISSUED" }));
     splitBillMock.mockResolvedValue({ sourceBill: billFixture({ items: [] }), bills: [billFixture(), billFixture({ id: "bill-3", billNumber: "BILL-003" })] });
     mergeBillsMock.mockResolvedValue(billFixture());
     voidBillMock.mockResolvedValue(billFixture({ status: "VOID", voidReason: "Hủy hóa đơn theo yêu cầu thu ngân" }));
+    createVoucherMock.mockResolvedValue(voucherFixture());
+    updateVoucherStatusMock.mockResolvedValue(voucherFixture({ status: "INACTIVE" }));
+    applyVoucherMock.mockResolvedValue(billFixture({ voucherDiscountAmount: "5000", discountedAmount: "45000", vatAmount: "3600", total: "48600" }));
+    applyDirectDiscountMock.mockResolvedValue(billFixture({ directDiscountAmount: "5000", discountedAmount: "45000", vatAmount: "3600", total: "48600" }));
+    reverseAdjustmentMock.mockResolvedValue(billFixture());
   });
 
   it("loads session billing and creates a draft bill", async () => {
@@ -116,6 +140,32 @@ describe("BillingPage", () => {
     await waitFor(() =>
       expect(mergeBillsMock).toHaveBeenCalledWith({ accessToken: "staff-token", branchId: "branch-id" }, "bill-1", ["bill-2"], "Gộp hóa đơn theo yêu cầu thu ngân")
     );
+  });
+
+  it("manages vouchers and applies bill discounts", async () => {
+    await loadBilling();
+
+    expect(await screen.findAllByText("SUMMER10")).toHaveLength(1);
+    fireEvent.change(screen.getByPlaceholderText("Mã voucher"), { target: { value: "NEW10" } });
+    fireEvent.change(screen.getByPlaceholderText("Tên voucher"), { target: { value: "New voucher" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tạo voucher" }));
+    await waitFor(() => expect(createVoucherMock).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Tắt" }));
+    await waitFor(() => expect(updateVoucherStatusMock).toHaveBeenCalledWith({ accessToken: "staff-token", branchId: "branch-id" }, "voucher-id", "INACTIVE"));
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Discount" })[0]);
+    fireEvent.change(screen.getAllByPlaceholderText("Mã voucher")[1], { target: { value: "SUMMER10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Áp dụng voucher" }));
+    await waitFor(() => expect(applyVoucherMock).toHaveBeenCalledWith({ accessToken: "staff-token", branchId: "branch-id" }, "bill-1", "SUMMER10", ""));
+
+    fireEvent.change(screen.getByPlaceholderText("Bắt buộc khi dùng voucher + direct discount"), { target: { value: "Manager override" } });
+    fireEvent.change(screen.getByPlaceholderText("Lý do chiết khấu"), { target: { value: "Service recovery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Áp dụng chiết khấu" }));
+    await waitFor(() => expect(applyDirectDiscountMock).toHaveBeenCalledWith({ accessToken: "staff-token", branchId: "branch-id" }, "bill-1", "FIXED_AMOUNT", 1000, "Service recovery", "Manager override"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Hoàn tác" }));
+    await waitFor(() => expect(reverseAdjustmentMock).toHaveBeenCalledWith({ accessToken: "staff-token", branchId: "branch-id" }, "adjustment-id", "Hoàn tác chiết khấu"));
   });
 
   it("shows loading, error and empty states", async () => {
@@ -179,12 +229,12 @@ function billFixture(overrides: Partial<Bill> = {}): Bill {
     billNumber: overrides.billNumber ?? "BILL-001",
     status: overrides.status ?? "DRAFT",
     subtotal: "50000",
-    voucherDiscountAmount: "0",
-    directDiscountAmount: "0",
-    discountedAmount: "50000",
-    vatRate: "0",
-    vatAmount: "0",
-    total: overrides.total ?? "50000",
+    voucherDiscountAmount: overrides.voucherDiscountAmount ?? "0",
+    directDiscountAmount: overrides.directDiscountAmount ?? "0",
+    discountedAmount: overrides.discountedAmount ?? "50000",
+    vatRate: "8",
+    vatAmount: overrides.vatAmount ?? "4000",
+    total: overrides.total ?? "54000",
     issuedById: null,
     issuedAt: null,
     paidAt: null,
@@ -210,6 +260,50 @@ function billFixture(overrides: Partial<Bill> = {}): Bill {
           updatedAt: new Date().toISOString()
         }
       ],
+    adjustments:
+      overrides.adjustments ??
+      [
+        {
+          id: "adjustment-id",
+          billId: overrides.id ?? "bill-1",
+          source: "VOUCHER",
+          discountType: "PERCENT",
+          discountValue: "10",
+          discountAmount: "0",
+          voucherId: "voucher-id",
+          codeSnapshot: "SUMMER10",
+          status: "ACTIVE",
+          appliedById: "staff-id",
+          reversedById: null,
+          reversedAt: null,
+          reverseReason: null,
+          isOverride: false,
+          overrideById: null,
+          overrideReason: null,
+          overrideBefore: null,
+          overrideAfter: null,
+          createdAt: new Date().toISOString()
+        }
+      ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function voucherFixture(overrides: Partial<import("./billing-api").Voucher> = {}) {
+  return {
+    id: "voucher-id",
+    branchId: "branch-id",
+    code: "SUMMER10",
+    name: "Summer",
+    discountType: "PERCENT" as const,
+    discountValue: "10",
+    maximumDiscount: null,
+    minimumSubtotal: "0",
+    usageLimit: null,
+    startsAt: new Date().toISOString(),
+    endsAt: null,
+    status: overrides.status ?? ("ACTIVE" as const),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
