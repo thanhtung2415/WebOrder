@@ -6,6 +6,7 @@ import { AppConfigModule } from "./config/app-config.module";
 import { DatabaseModule } from "./database/database.module";
 import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { BillingModule } from "./modules/billing/billing.module";
 import { BranchesModule } from "./modules/branches/branches.module";
 import { CartModule } from "./modules/cart/cart.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
@@ -35,6 +36,7 @@ import { RequestLoggingMiddleware } from "./common/middleware/request-logging.mi
     AuthModule,
     SetupModule,
     BranchesModule,
+    BillingModule,
     CartModule,
     OrdersModule,
     MenuModule,
