@@ -11,6 +11,7 @@ import { CustomerMenuPage } from "../customer/CustomerMenuPage";
 import { CustomerQrEntryPage } from "../customer/CustomerQrEntryPage";
 import { SetupPage } from "../setup/setup-page";
 import { SetupStatusGuard } from "../setup/setup-status-guard";
+import { BillingPage } from "../staff/BillingPage";
 import { BarQueuePage, KitchenQueuePage } from "../staff/QueuePages";
 import { StaffServiceRequestPage } from "../staff/ServiceRequestPage";
 import { StaffLayout } from "../staff/StaffLayout";
@@ -46,6 +47,7 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
       children: [
         { index: true, element: <ShellPage namespace="staff" /> },
         { path: "requests", element: <StaffServiceRequestPage /> },
+        { path: "billing", element: <BillingPage /> },
         { path: "bar", element: <BarQueuePage /> },
         { path: "kitchen", element: <KitchenQueuePage /> },
         { path: "tables", element: <TableManagementPage /> }

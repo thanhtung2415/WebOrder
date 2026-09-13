@@ -94,6 +94,9 @@ export function StaffLayout(): ReactElement {
               <NavLink className={({ isActive }) => navClass(isActive)} to="/staff/requests">
                 Requests
               </NavLink>
+              <NavLink className={({ isActive }) => navClass(isActive)} to="/staff/billing">
+                Billing
+              </NavLink>
               <NavLink className={({ isActive }) => navClass(isActive)} to="/staff/bar">
                 Bar
               </NavLink>
