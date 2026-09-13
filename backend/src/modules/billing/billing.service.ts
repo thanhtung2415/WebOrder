@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { AuditAction, BillStatus, IdempotencyStatus, PaymentStatus, Prisma, SessionStatus } from "@prisma/client";
+import { AuditAction, BillAdjustmentSource, BillAdjustmentStatus, BillStatus, DiscountType, IdempotencyStatus, PaymentStatus, Prisma, SessionStatus, VoucherStatus } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { ApiException, badRequest, conflict, notFound } from "../../common/errors/api-exception";
 import { RequestContextService } from "../../common/request-context/request-context.service";
@@ -7,16 +7,24 @@ import { PrismaService } from "../../database/prisma.service";
 import { BranchContext } from "../auth/branch-context";
 import { AuthorizationService } from "../auth/services/authorization.service";
 import { stableStringify } from "../setup/stable-json";
-import { BillResponse, SessionBillingResponse, UnbilledOrderItemResponse } from "./billing.types";
-import { BillAllocationDto, CreateBillDto, MergeBillsDto, SplitBillDto, SplitBillPartDto, VoidBillDto } from "./dto/billing.dto";
+import { BillAdjustmentResponse, BillResponse, SessionBillingResponse, UnbilledOrderItemResponse, VoucherResponse } from "./billing.types";
+import { ApplyDirectDiscountDto, ApplyVoucherDto, BillAllocationDto, CreateBillDto, CreateVoucherDto, MergeBillsDto, ReverseBillAdjustmentDto, SplitBillDto, SplitBillPartDto, UpdateVoucherDto, VoidBillDto } from "./dto/billing.dto";
 
 const EFFECTIVE_BILL_STATUSES: BillStatus[] = [BillStatus.DRAFT, BillStatus.ISSUED, BillStatus.PAID];
 const MUTABLE_BILL_STATUSES: BillStatus[] = [BillStatus.DRAFT, BillStatus.ISSUED];
 const ZERO = new Prisma.Decimal(0);
+const VAT_RATE = new Prisma.Decimal(8);
 
 type BillWithItems = Prisma.BillGetPayload<{
-  include: { items: { include: { orderItem: true }; orderBy: [{ createdAt: "asc" }, { id: "asc" }] } };
+  include: {
+    items: { include: { orderItem: true }; orderBy: [{ createdAt: "asc" }, { id: "asc" }] };
+    adjustments: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] };
+  };
 }>;
+
+type VoucherRecord = Prisma.VoucherGetPayload<Record<string, never>>;
+
+type AdjustmentRecord = Prisma.BillAdjustmentGetPayload<Record<string, never>>;
 
 interface LockedSessionRow {
   id: string;
@@ -30,7 +38,24 @@ interface LockedBillRow {
   branch_id: string;
   table_session_id: string;
   status: BillStatus;
+  subtotal: Prisma.Decimal;
   total: Prisma.Decimal;
+}
+
+interface LockedVoucherRow {
+  id: string;
+  branch_id: string;
+  code: string;
+  name: string;
+  discount_type: DiscountType;
+  discount_value: Prisma.Decimal;
+  maximum_discount: Prisma.Decimal | null;
+  minimum_subtotal: Prisma.Decimal;
+  usage_limit: number | null;
+  starts_at: Date;
+  ends_at: Date | null;
+  status: VoucherStatus;
+  deleted_at: Date | null;
 }
 
 interface LockedOrderItemRow {
@@ -104,8 +129,7 @@ export class BillingService {
           data: {
             branchId: context.branch.id,
             tableSessionId: dto.tableSessionId,
-            billNumber: this.generateBillNumber(),
-            vatRate: ZERO
+            billNumber: this.generateBillNumber()
           }
         });
         await this.createBillItems(tx, bill.id, allocations);
@@ -155,6 +179,87 @@ export class BillingService {
     return this.withIdempotency(context.branch.id, "billing.void", idempotencyKey, { id, reason }, 200, (tx) => this.rethrowBillingErrors(this.voidBillInTx(tx, id, reason, context)));
   }
 
+  async listVouchers(context: BranchContext): Promise<{ items: VoucherResponse[] }> {
+    const vouchers = await this.prisma.voucher.findMany({
+      where: { branchId: context.branch.id, deletedAt: null },
+      orderBy: [{ createdAt: "desc" }, { code: "asc" }]
+    });
+    return { items: vouchers.map((voucher) => this.toVoucherResponse(voucher)) };
+  }
+
+  async createVoucher(dto: CreateVoucherDto, context: BranchContext): Promise<VoucherResponse> {
+    const normalized = this.normalizeVoucherInput(dto);
+    const voucher = await this.prisma.voucher.create({
+      data: {
+        branchId: context.branch.id,
+        code: normalized.code,
+        name: normalized.name,
+        discountType: dto.discountType,
+        discountValue: this.money(dto.discountValue),
+        maximumDiscount: dto.maximumDiscount === undefined ? null : this.money(dto.maximumDiscount),
+        minimumSubtotal: this.money(dto.minimumSubtotal ?? 0),
+        usageLimit: dto.usageLimit ?? null,
+        startsAt: normalized.startsAt,
+        endsAt: normalized.endsAt,
+        status: dto.status ?? VoucherStatus.ACTIVE
+      }
+    });
+    return this.toVoucherResponse(voucher);
+  }
+
+  async updateVoucher(id: string, dto: UpdateVoucherDto, context: BranchContext): Promise<VoucherResponse> {
+    this.authorizationService.validateUuid(id, "INVALID_VOUCHER_ID");
+    const current = await this.prisma.voucher.findFirst({ where: { id, branchId: context.branch.id, deletedAt: null } });
+    if (!current) {
+      throw notFound("VOUCHER_NOT_FOUND", "Voucher not found");
+    }
+    const startsAt = dto.startsAt === undefined ? undefined : this.parseDate(dto.startsAt, "startsAt");
+    const endsAt = dto.endsAt === undefined ? undefined : dto.endsAt === null ? null : this.parseDate(dto.endsAt, "endsAt");
+    this.assertVoucherDates(startsAt ?? current.startsAt, endsAt === undefined ? current.endsAt : endsAt);
+    const voucher = await this.prisma.voucher.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: this.cleanText(dto.name, "Voucher name is required") } : {}),
+        ...(dto.discountType !== undefined ? { discountType: dto.discountType } : {}),
+        ...(dto.discountValue !== undefined ? { discountValue: this.money(dto.discountValue) } : {}),
+        ...(dto.maximumDiscount !== undefined ? { maximumDiscount: dto.maximumDiscount === null ? null : this.money(dto.maximumDiscount) } : {}),
+        ...(dto.minimumSubtotal !== undefined ? { minimumSubtotal: this.money(dto.minimumSubtotal) } : {}),
+        ...(dto.usageLimit !== undefined ? { usageLimit: dto.usageLimit } : {}),
+        ...(startsAt !== undefined ? { startsAt } : {}),
+        ...(endsAt !== undefined ? { endsAt } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {})
+      }
+    });
+    return this.toVoucherResponse(voucher);
+  }
+
+  async applyVoucher(id: string, dto: ApplyVoucherDto, idempotencyKey: string | undefined, context: BranchContext): Promise<BillResponse> {
+    this.authorizationService.validateUuid(id, "INVALID_BILL_ID");
+    const voucherCode = this.normalizeVoucherCode(dto.voucherCode);
+    return this.withIdempotency(context.branch.id, "billing.apply-voucher", idempotencyKey, { id, voucherCode, overrideReason: dto.overrideReason?.trim() ?? null }, 200, (tx) =>
+      this.rethrowBillingErrors(this.applyVoucherInTx(tx, id, voucherCode, dto.overrideReason, context))
+    );
+  }
+
+  async applyDirectDiscount(id: string, dto: ApplyDirectDiscountDto, idempotencyKey: string | undefined, context: BranchContext): Promise<BillResponse> {
+    this.authorizationService.validateUuid(id, "INVALID_BILL_ID");
+    const reason = this.cleanReason(dto.reason);
+    return this.withIdempotency(
+      context.branch.id,
+      "billing.apply-direct-discount",
+      idempotencyKey,
+      { id, discountType: dto.discountType, discountValue: dto.discountValue, reason, overrideReason: dto.overrideReason?.trim() ?? null },
+      200,
+      (tx) => this.rethrowBillingErrors(this.applyDirectDiscountInTx(tx, id, dto.discountType, this.money(dto.discountValue), reason, dto.overrideReason, context))
+    );
+  }
+
+  async reverseAdjustment(id: string, dto: ReverseBillAdjustmentDto, idempotencyKey: string | undefined, context: BranchContext): Promise<BillResponse> {
+    this.authorizationService.validateUuid(id, "INVALID_ADJUSTMENT_ID");
+    const reason = this.cleanReason(dto.reason);
+    return this.withIdempotency(context.branch.id, "billing.reverse-adjustment", idempotencyKey, { id, reason }, 200, (tx) => this.rethrowBillingErrors(this.reverseAdjustmentInTx(tx, id, reason, context)));
+  }
+
   private async splitBillInTx(tx: Prisma.TransactionClient, id: string, dto: SplitBillDto, context: BranchContext): Promise<{ sourceBill: BillResponse; bills: BillResponse[] }> {
     const source = await this.lockBill(tx, context.branch.id, id);
     if (!source) {
@@ -173,6 +278,7 @@ export class BillingService {
     this.assertSplitPreservesAllocations(sourceTotals, requestedParts);
 
     const sourceBefore = await this.loadBill(tx, source.id);
+    await this.reverseActiveAdjustmentsForBill(tx, source.id, context.user.id, "Bill split", context);
     await tx.billItem.deleteMany({ where: { billId: source.id } });
     const newBills: BillWithItems[] = [];
     for (const part of requestedParts) {
@@ -180,8 +286,7 @@ export class BillingService {
         data: {
           branchId: context.branch.id,
           tableSessionId: source.table_session_id,
-          billNumber: this.generateBillNumber(),
-          vatRate: ZERO
+          billNumber: this.generateBillNumber()
         }
       });
       const allocations = [...part.entries()].map(([orderItemId, quantity]) => {
@@ -231,7 +336,9 @@ export class BillingService {
     await this.lockBillItemsForBills(tx, [...sourceBillIds, target.id]);
     const beforeTarget = await this.loadBill(tx, target.id);
     const beforeSources = await Promise.all(sourceBillIds.map((sourceId) => this.loadBill(tx, sourceId)));
-    await this.reverseSourceAdjustments(tx, sourceBillIds, context.user.id, reason);
+    for (const sourceId of sourceBillIds) {
+      await this.reverseActiveAdjustmentsForBill(tx, sourceId, context.user.id, `Bill merged: ${reason}`, context);
+    }
 
     const sourceItems = await tx.billItem.findMany({ where: { billId: { in: sourceBillIds } }, orderBy: [{ orderItemId: "asc" }, { id: "asc" }] });
     await tx.bill.updateMany({
@@ -263,6 +370,8 @@ export class BillingService {
     await this.assertNoActivePayment(tx, bill.id);
     await this.lockBillItemsForBills(tx, [bill.id]);
     const before = await this.loadBill(tx, bill.id);
+    await this.reverseActiveAdjustmentsForBill(tx, bill.id, context.user.id, `Bill voided: ${reason}`, context);
+    await this.recalculateBill(tx, bill.id);
     const updated = await tx.bill.update({
       where: { id: bill.id },
       data: { status: BillStatus.VOID, voidedById: context.user.id, voidedAt: new Date(), voidReason: reason },
@@ -272,6 +381,140 @@ export class BillingService {
     await this.writeBillOutbox(tx, context.branch.id, bill.id, "BILL_VOIDED", { reason });
     await this.writeBillOutbox(tx, context.branch.id, bill.id, "BILL_UPDATED", { reason: "BILL_VOIDED" });
     return this.toBillResponse(updated);
+  }
+
+  private async applyVoucherInTx(tx: Prisma.TransactionClient, billId: string, voucherCode: string, overrideReason: string | undefined, context: BranchContext): Promise<BillResponse> {
+    const bill = await this.lockBill(tx, context.branch.id, billId);
+    if (!bill) {
+      throw notFound("BILL_NOT_FOUND", "Bill not found");
+    }
+    this.assertMutableBill(bill.status);
+    await this.assertNoActivePayment(tx, bill.id);
+    const before = await this.recalculateBill(tx, bill.id);
+    const activeAdjustments = await this.lockActiveAdjustments(tx, bill.id);
+    const activeDirect = activeAdjustments.find((adjustment) => adjustment.source === BillAdjustmentSource.DIRECT_DISCOUNT);
+    const activeVoucher = activeAdjustments.find((adjustment) => adjustment.source === BillAdjustmentSource.VOUCHER);
+    const isOverride = Boolean(activeDirect);
+    const cleanedOverrideReason = this.assertOverrideAllowed(isOverride, overrideReason, context);
+    const voucher = await this.lockVoucherByCode(tx, context.branch.id, voucherCode);
+    this.assertVoucherUsable(voucher, before.subtotal);
+
+    if (activeVoucher) {
+      await this.reverseAdjustmentRecord(tx, activeVoucher.id, context.user.id, "Voucher replaced");
+    }
+    await this.assertVoucherUsageAvailable(tx, voucher.id, activeVoucher?.voucherId === voucher.id ? activeVoucher.id : null, voucher.usage_limit);
+
+    const amount = this.calculateDiscountAmount(before.subtotal, voucher.discount_type, new Prisma.Decimal(voucher.discount_value), voucher.maximum_discount ? new Prisma.Decimal(voucher.maximum_discount) : null);
+    const adjustment = await tx.billAdjustment.create({
+      data: {
+        billId: bill.id,
+        source: BillAdjustmentSource.VOUCHER,
+        discountType: voucher.discount_type,
+        discountValue: voucher.discount_value,
+        discountAmount: amount,
+        voucherId: voucher.id,
+        codeSnapshot: voucher.code,
+        appliedById: context.user.id,
+        isOverride,
+        ...(isOverride
+          ? {
+              overrideById: context.user.id,
+              overrideReason: cleanedOverrideReason,
+              overrideBefore: this.auditBill(before),
+              overrideAfter: { pending: true } as Prisma.InputJsonObject
+            }
+          : {})
+      }
+    });
+    const after = await this.recalculateBill(tx, bill.id);
+    await this.patchOverrideAfter(tx, adjustment.id, isOverride, after);
+    const result = isOverride ? await this.loadBill(tx, bill.id) : after;
+    await this.writeAudit(tx, context, AuditAction.APPLY_VOUCHER, "bill", bill.id, this.auditBill(before), this.auditBill(result), { voucherId: voucher.id, voucherCode: voucher.code });
+    if (isOverride) {
+      await this.writeAudit(tx, context, AuditAction.DISCOUNT_OVERRIDE, "bill", bill.id, this.auditBill(before), this.auditBill(result), { source: BillAdjustmentSource.VOUCHER, overrideReason: cleanedOverrideReason });
+    }
+    await this.writeBillOutbox(tx, context.branch.id, bill.id, "BILL_UPDATED", { reason: "VOUCHER_APPLIED" });
+    return this.toBillResponse(result);
+  }
+
+  private async applyDirectDiscountInTx(
+    tx: Prisma.TransactionClient,
+    billId: string,
+    discountType: DiscountType,
+    discountValue: Prisma.Decimal,
+    reason: string,
+    overrideReason: string | undefined,
+    context: BranchContext
+  ): Promise<BillResponse> {
+    const bill = await this.lockBill(tx, context.branch.id, billId);
+    if (!bill) {
+      throw notFound("BILL_NOT_FOUND", "Bill not found");
+    }
+    this.assertMutableBill(bill.status);
+    await this.assertNoActivePayment(tx, bill.id);
+    const before = await this.recalculateBill(tx, bill.id);
+    const activeAdjustments = await this.lockActiveAdjustments(tx, bill.id);
+    const activeVoucher = activeAdjustments.find((adjustment) => adjustment.source === BillAdjustmentSource.VOUCHER);
+    const activeDirect = activeAdjustments.find((adjustment) => adjustment.source === BillAdjustmentSource.DIRECT_DISCOUNT);
+    const isOverride = Boolean(activeVoucher);
+    const cleanedOverrideReason = this.assertOverrideAllowed(isOverride, overrideReason, context);
+    if (activeDirect) {
+      await this.reverseAdjustmentRecord(tx, activeDirect.id, context.user.id, "Direct discount replaced");
+    }
+    const voucherAmount = activeVoucher ? this.calculateDiscountAmount(before.subtotal, activeVoucher.discountType, activeVoucher.discountValue, await this.maximumDiscountFor(tx, activeVoucher)) : ZERO;
+    const base = Prisma.Decimal.max(ZERO, before.subtotal.sub(voucherAmount));
+    const amount = this.calculateDiscountAmount(base, discountType, discountValue, null);
+    const adjustment = await tx.billAdjustment.create({
+      data: {
+        billId: bill.id,
+        source: BillAdjustmentSource.DIRECT_DISCOUNT,
+        discountType,
+        discountValue,
+        discountAmount: amount,
+        appliedById: context.user.id,
+        codeSnapshot: reason.slice(0, 48),
+        isOverride,
+        ...(isOverride
+          ? {
+              overrideById: context.user.id,
+              overrideReason: cleanedOverrideReason,
+              overrideBefore: this.auditBill(before),
+              overrideAfter: { pending: true } as Prisma.InputJsonObject
+            }
+          : {})
+      }
+    });
+    const after = await this.recalculateBill(tx, bill.id);
+    await this.patchOverrideAfter(tx, adjustment.id, isOverride, after);
+    const result = isOverride ? await this.loadBill(tx, bill.id) : after;
+    await this.writeAudit(tx, context, AuditAction.APPLY_DISCOUNT, "bill", bill.id, this.auditBill(before), this.auditBill(result), { discountType, discountValue: discountValue.toFixed(2), reason });
+    if (isOverride) {
+      await this.writeAudit(tx, context, AuditAction.DISCOUNT_OVERRIDE, "bill", bill.id, this.auditBill(before), this.auditBill(result), { source: BillAdjustmentSource.DIRECT_DISCOUNT, overrideReason: cleanedOverrideReason });
+    }
+    await this.writeBillOutbox(tx, context.branch.id, bill.id, "BILL_UPDATED", { reason: "DIRECT_DISCOUNT_APPLIED" });
+    return this.toBillResponse(result);
+  }
+
+  private async reverseAdjustmentInTx(tx: Prisma.TransactionClient, adjustmentId: string, reason: string, context: BranchContext): Promise<BillResponse> {
+    const adjustment = await this.lockAdjustment(tx, context.branch.id, adjustmentId);
+    if (!adjustment) {
+      throw notFound("ADJUSTMENT_NOT_FOUND", "Bill adjustment not found");
+    }
+    const bill = await this.lockBill(tx, context.branch.id, adjustment.bill_id);
+    if (!bill) {
+      throw notFound("BILL_NOT_FOUND", "Bill not found");
+    }
+    this.assertMutableBill(bill.status);
+    await this.assertNoActivePayment(tx, bill.id);
+    if (adjustment.status !== BillAdjustmentStatus.ACTIVE) {
+      throw conflict("INVALID_ADJUSTMENT_STATUS", "Only active adjustments can be reversed");
+    }
+    const before = await this.loadBill(tx, bill.id);
+    await this.reverseAdjustmentRecord(tx, adjustment.id, context.user.id, reason);
+    const after = await this.recalculateBill(tx, bill.id);
+    await this.writeAudit(tx, context, adjustment.source === BillAdjustmentSource.VOUCHER ? AuditAction.APPLY_VOUCHER : AuditAction.APPLY_DISCOUNT, "bill_adjustment", adjustment.id, this.auditBill(before), this.auditBill(after), { reason, operation: "REVERSAL" });
+    await this.writeBillOutbox(tx, context.branch.id, bill.id, "BILL_UPDATED", { reason: "ADJUSTMENT_REVERSED", adjustmentId });
+    return this.toBillResponse(after);
   }
 
   private async resolveRequestedAllocations(
@@ -338,18 +581,164 @@ export class BillingService {
   private async recalculateBill(tx: Prisma.TransactionClient, billId: string): Promise<BillWithItems> {
     const aggregate = await tx.billItem.aggregate({ where: { billId }, _sum: { lineAmount: true } });
     const subtotal = aggregate._sum.lineAmount ?? ZERO;
+    const activeAdjustments = await tx.billAdjustment.findMany({ where: { billId, status: BillAdjustmentStatus.ACTIVE }, orderBy: [{ source: "asc" }, { createdAt: "asc" }] });
+    const voucherAdjustment = activeAdjustments.find((adjustment) => adjustment.source === BillAdjustmentSource.VOUCHER);
+    const directAdjustment = activeAdjustments.find((adjustment) => adjustment.source === BillAdjustmentSource.DIRECT_DISCOUNT);
+    const voucherDiscountAmount = voucherAdjustment ? this.calculateDiscountAmount(subtotal, voucherAdjustment.discountType, voucherAdjustment.discountValue, await this.maximumDiscountFor(tx, voucherAdjustment)) : ZERO;
+    const directBase = Prisma.Decimal.max(ZERO, subtotal.sub(voucherDiscountAmount));
+    const directDiscountAmount = directAdjustment ? this.calculateDiscountAmount(directBase, directAdjustment.discountType, directAdjustment.discountValue, null) : ZERO;
+    const discountedAmount = Prisma.Decimal.max(ZERO, subtotal.sub(voucherDiscountAmount).sub(directDiscountAmount));
+    const vatAmount = this.roundVnd(discountedAmount.mul(VAT_RATE).div(100));
+    const total = discountedAmount.add(vatAmount);
+
+    if (voucherAdjustment && !voucherAdjustment.discountAmount.equals(voucherDiscountAmount)) {
+      await tx.billAdjustment.update({ where: { id: voucherAdjustment.id }, data: { discountAmount: voucherDiscountAmount } });
+    }
+    if (directAdjustment && !directAdjustment.discountAmount.equals(directDiscountAmount)) {
+      await tx.billAdjustment.update({ where: { id: directAdjustment.id }, data: { discountAmount: directDiscountAmount } });
+    }
+
     return tx.bill.update({
       where: { id: billId },
       data: {
         subtotal,
-        voucherDiscountAmount: ZERO,
-        directDiscountAmount: ZERO,
-        discountedAmount: subtotal,
-        vatRate: ZERO,
-        vatAmount: ZERO,
-        total: subtotal
+        voucherDiscountAmount,
+        directDiscountAmount,
+        discountedAmount,
+        vatRate: VAT_RATE,
+        vatAmount,
+        total
       },
       include: this.billInclude()
+    });
+  }
+
+  private async maximumDiscountFor(tx: Prisma.TransactionClient, adjustment: AdjustmentRecord): Promise<Prisma.Decimal | null> {
+    if (!adjustment.voucherId) {
+      return null;
+    }
+    const voucher = await tx.voucher.findUnique({ where: { id: adjustment.voucherId }, select: { maximumDiscount: true } });
+    return voucher?.maximumDiscount ?? null;
+  }
+
+  private calculateDiscountAmount(base: Prisma.Decimal, type: DiscountType, value: Prisma.Decimal, maximumDiscount: Prisma.Decimal | null): Prisma.Decimal {
+    if (base.lte(0)) {
+      return ZERO;
+    }
+    const raw = type === DiscountType.PERCENT ? this.roundVnd(base.mul(value).div(100)) : this.money(value);
+    const cappedByMaximum = maximumDiscount ? Prisma.Decimal.min(raw, maximumDiscount) : raw;
+    return Prisma.Decimal.min(base, Prisma.Decimal.max(ZERO, cappedByMaximum));
+  }
+
+  private async lockActiveAdjustments(tx: Prisma.TransactionClient, billId: string): Promise<AdjustmentRecord[]> {
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM bill_adjustments
+      WHERE bill_id = ${billId}::uuid AND status = 'ACTIVE'
+      ORDER BY source ASC, created_at ASC, id ASC
+      FOR UPDATE
+    `;
+    return tx.billAdjustment.findMany({ where: { billId, status: BillAdjustmentStatus.ACTIVE }, orderBy: [{ source: "asc" }, { createdAt: "asc" }, { id: "asc" }] });
+  }
+
+  private async lockVoucherByCode(tx: Prisma.TransactionClient, branchId: string, code: string): Promise<LockedVoucherRow> {
+    const rows = await tx.$queryRaw<LockedVoucherRow[]>`
+      SELECT id, branch_id, code, name, discount_type, discount_value, maximum_discount, minimum_subtotal, usage_limit, starts_at, ends_at, status, deleted_at
+      FROM vouchers
+      WHERE branch_id = ${branchId}::uuid AND code = ${code}
+      FOR UPDATE
+    `;
+    const voucher = rows[0];
+    if (!voucher || voucher.deleted_at) {
+      throw notFound("VOUCHER_NOT_FOUND", "Voucher not found");
+    }
+    return voucher;
+  }
+
+  private assertVoucherUsable(voucher: LockedVoucherRow, subtotal: Prisma.Decimal): void {
+    const now = new Date();
+    if (voucher.status !== VoucherStatus.ACTIVE) {
+      throw conflict("VOUCHER_INACTIVE", "Voucher is not active");
+    }
+    if (voucher.starts_at > now) {
+      throw conflict("VOUCHER_NOT_STARTED", "Voucher is not started");
+    }
+    if (voucher.ends_at && voucher.ends_at < now) {
+      throw conflict("VOUCHER_EXPIRED", "Voucher is expired");
+    }
+    if (subtotal.lt(voucher.minimum_subtotal)) {
+      throw conflict("VOUCHER_MINIMUM_SUBTOTAL_NOT_MET", "Bill subtotal does not meet voucher minimum subtotal");
+    }
+  }
+
+  private async assertVoucherUsageAvailable(tx: Prisma.TransactionClient, voucherId: string, _replacedAdjustmentId: string | null, usageLimit: number | null): Promise<void> {
+    if (!usageLimit) {
+      return;
+    }
+    const rows = await tx.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count
+      FROM bill_adjustments ba
+      JOIN bills b ON b.id = ba.bill_id
+      WHERE ba.voucher_id = ${voucherId}::uuid
+        AND ba.status = 'ACTIVE'
+        AND b.status IN ('DRAFT', 'ISSUED', 'PAID')
+    `;
+    if (Number(rows[0]?.count ?? 0n) >= usageLimit) {
+      throw conflict("VOUCHER_USAGE_LIMIT_REACHED", "Voucher usage limit has been reached");
+    }
+  }
+
+  private assertOverrideAllowed(isOverride: boolean, overrideReason: string | undefined, context: BranchContext): string | null {
+    if (!isOverride) {
+      return null;
+    }
+    this.authorizationService.assertPermissions(context, ["DISCOUNT_OVERRIDE"]);
+    return this.cleanReason(overrideReason ?? "");
+  }
+
+  private async lockAdjustment(tx: Prisma.TransactionClient, branchId: string, adjustmentId: string): Promise<(AdjustmentRecord & { bill_id: string }) | null> {
+    const rows = await tx.$queryRaw<Array<{ id: string; bill_id: string }>>`
+      SELECT ba.id, ba.bill_id
+      FROM bill_adjustments ba
+      JOIN bills b ON b.id = ba.bill_id
+      WHERE ba.id = ${adjustmentId}::uuid AND b.branch_id = ${branchId}::uuid
+      FOR UPDATE OF ba
+    `;
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    const adjustment = await tx.billAdjustment.findUniqueOrThrow({ where: { id: row.id } });
+    return { ...adjustment, bill_id: row.bill_id };
+  }
+
+  private async reverseActiveAdjustmentsForBill(tx: Prisma.TransactionClient, billId: string, actorId: string, reason: string, context: BranchContext): Promise<void> {
+    const adjustments = await this.lockActiveAdjustments(tx, billId);
+    for (const adjustment of adjustments) {
+      await this.reverseAdjustmentRecord(tx, adjustment.id, actorId, reason);
+      await this.writeAudit(tx, context, adjustment.source === BillAdjustmentSource.VOUCHER ? AuditAction.APPLY_VOUCHER : AuditAction.APPLY_DISCOUNT, "bill_adjustment", adjustment.id, null, null, { reason, operation: "REVERSAL" });
+    }
+  }
+
+  private async reverseAdjustmentRecord(tx: Prisma.TransactionClient, adjustmentId: string, actorId: string, reason: string): Promise<void> {
+    await tx.billAdjustment.update({
+      where: { id: adjustmentId },
+      data: {
+        status: BillAdjustmentStatus.REVERSED,
+        reversedById: actorId,
+        reversedAt: new Date(),
+        reverseReason: reason
+      }
+    });
+  }
+
+  private async patchOverrideAfter(tx: Prisma.TransactionClient, adjustmentId: string, isOverride: boolean, bill: BillWithItems): Promise<void> {
+    if (!isOverride) {
+      return;
+    }
+    await tx.billAdjustment.update({
+      where: { id: adjustmentId },
+      data: { overrideAfter: this.auditBill(bill) }
     });
   }
 
@@ -424,6 +813,56 @@ export class BillingService {
     return value;
   }
 
+  private cleanText(value: string, message: string): string {
+    const cleaned = value.trim();
+    if (!cleaned) {
+      throw badRequest("VALIDATION_ERROR", message);
+    }
+    return cleaned;
+  }
+
+  private normalizeVoucherCode(value: string): string {
+    return this.cleanText(value, "Voucher code is required").toUpperCase();
+  }
+
+  private normalizeVoucherInput(dto: CreateVoucherDto): { code: string; name: string; startsAt: Date; endsAt: Date | null } {
+    const startsAt = this.parseDate(dto.startsAt, "startsAt");
+    const endsAt = dto.endsAt ? this.parseDate(dto.endsAt, "endsAt") : null;
+    this.assertVoucherDates(startsAt, endsAt);
+    return {
+      code: this.normalizeVoucherCode(dto.code),
+      name: this.cleanText(dto.name, "Voucher name is required"),
+      startsAt,
+      endsAt
+    };
+  }
+
+  private parseDate(value: string, field: string): Date {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      throw badRequest("VALIDATION_ERROR", `Invalid ${field}`);
+    }
+    return date;
+  }
+
+  private assertVoucherDates(startsAt: Date, endsAt: Date | null): void {
+    if (endsAt && endsAt <= startsAt) {
+      throw badRequest("VALIDATION_ERROR", "Voucher end date must be after start date");
+    }
+  }
+
+  private money(value: number | string | Prisma.Decimal): Prisma.Decimal {
+    const decimal = new Prisma.Decimal(value);
+    if (decimal.lt(0)) {
+      throw badRequest("VALIDATION_ERROR", "Money amount must be non-negative");
+    }
+    return decimal.toDecimalPlaces(0);
+  }
+
+  private roundVnd(value: Prisma.Decimal): Prisma.Decimal {
+    return value.toDecimalPlaces(0);
+  }
+
   private generateBillNumber(): string {
     return `BILL-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
   }
@@ -454,7 +893,7 @@ export class BillingService {
 
   private async lockBill(tx: Prisma.TransactionClient, branchId: string, id: string): Promise<LockedBillRow | null> {
     const rows = await tx.$queryRaw<LockedBillRow[]>`
-      SELECT id, branch_id, table_session_id, status, total
+      SELECT id, branch_id, table_session_id, status, subtotal, total
       FROM bills
       WHERE id = ${id}::uuid AND branch_id = ${branchId}::uuid
       FOR UPDATE
@@ -465,7 +904,7 @@ export class BillingService {
   private async lockBills(tx: Prisma.TransactionClient, branchId: string, ids: string[]): Promise<LockedBillRow[]> {
     const uniqueIds = [...new Set(ids)].sort();
     return tx.$queryRaw<LockedBillRow[]>`
-      SELECT id, branch_id, table_session_id, status, total
+      SELECT id, branch_id, table_session_id, status, subtotal, total
       FROM bills
       WHERE branch_id = ${branchId}::uuid AND id IN (${Prisma.join(uniqueIds.map((id) => Prisma.sql`${id}::uuid`))})
       ORDER BY id ASC
@@ -558,18 +997,6 @@ export class BillingService {
     }
   }
 
-  private async reverseSourceAdjustments(tx: Prisma.TransactionClient, billIds: string[], actorId: string, reason: string): Promise<void> {
-    await tx.billAdjustment.updateMany({
-      where: { billId: { in: billIds }, status: "ACTIVE" },
-      data: {
-        status: "REVERSED",
-        reversedById: actorId,
-        reversedAt: new Date(),
-        reverseReason: `Bill merged: ${reason}`
-      }
-    });
-  }
-
   private async loadBill(tx: Prisma.TransactionClient, billId: string): Promise<BillWithItems> {
     return tx.bill.findUniqueOrThrow({ where: { id: billId }, include: this.billInclude() });
   }
@@ -578,6 +1005,9 @@ export class BillingService {
     return {
       items: {
         include: { orderItem: true },
+        orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }]
+      },
+      adjustments: {
         orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }]
       }
     };
@@ -624,8 +1054,58 @@ export class BillingService {
     return {
       id: bill.id,
       status: bill.status,
+      subtotal: bill.subtotal.toFixed(2),
+      voucherDiscountAmount: bill.voucherDiscountAmount.toFixed(2),
+      directDiscountAmount: bill.directDiscountAmount.toFixed(2),
+      discountedAmount: bill.discountedAmount.toFixed(2),
+      vatRate: bill.vatRate.toFixed(2),
+      vatAmount: bill.vatAmount.toFixed(2),
       total: bill.total.toFixed(2),
-      items: bill.items.map((item) => ({ orderItemId: item.orderItemId, quantity: item.quantity, lineAmount: item.lineAmount.toFixed(2) }))
+      items: bill.items.map((item) => ({ orderItemId: item.orderItemId, quantity: item.quantity, lineAmount: item.lineAmount.toFixed(2) })),
+      adjustments: bill.adjustments.map((adjustment) => ({ id: adjustment.id, source: adjustment.source, status: adjustment.status, discountAmount: adjustment.discountAmount.toFixed(2) }))
+    };
+  }
+
+  private toVoucherResponse(voucher: VoucherRecord): VoucherResponse {
+    return {
+      id: voucher.id,
+      branchId: voucher.branchId,
+      code: voucher.code,
+      name: voucher.name,
+      discountType: voucher.discountType,
+      discountValue: voucher.discountValue.toFixed(2),
+      maximumDiscount: voucher.maximumDiscount?.toFixed(2) ?? null,
+      minimumSubtotal: voucher.minimumSubtotal.toFixed(2),
+      usageLimit: voucher.usageLimit,
+      startsAt: voucher.startsAt.toISOString(),
+      endsAt: voucher.endsAt?.toISOString() ?? null,
+      status: voucher.status,
+      createdAt: voucher.createdAt.toISOString(),
+      updatedAt: voucher.updatedAt.toISOString()
+    };
+  }
+
+  private toAdjustmentResponse(adjustment: AdjustmentRecord): BillAdjustmentResponse {
+    return {
+      id: adjustment.id,
+      billId: adjustment.billId,
+      source: adjustment.source,
+      discountType: adjustment.discountType,
+      discountValue: adjustment.discountValue.toFixed(2),
+      discountAmount: adjustment.discountAmount.toFixed(2),
+      voucherId: adjustment.voucherId,
+      codeSnapshot: adjustment.codeSnapshot,
+      status: adjustment.status,
+      appliedById: adjustment.appliedById,
+      reversedById: adjustment.reversedById,
+      reversedAt: adjustment.reversedAt?.toISOString() ?? null,
+      reverseReason: adjustment.reverseReason,
+      isOverride: adjustment.isOverride,
+      overrideById: adjustment.overrideById,
+      overrideReason: adjustment.overrideReason,
+      overrideBefore: adjustment.overrideBefore,
+      overrideAfter: adjustment.overrideAfter,
+      createdAt: adjustment.createdAt.toISOString()
     };
   }
 
@@ -665,6 +1145,7 @@ export class BillingService {
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString()
       })),
+      adjustments: bill.adjustments.map((adjustment) => this.toAdjustmentResponse(adjustment)),
       createdAt: bill.createdAt.toISOString(),
       updatedAt: bill.updatedAt.toISOString()
     };
@@ -742,6 +1223,12 @@ export class BillingService {
         if (error.message.includes("Bill item and bill must belong to the same table session")) {
           throw conflict("BILL_MERGE_SESSION_MISMATCH", "Bill item and bill must belong to the same table session");
         }
+        if (error.message.includes("Adjustments can only be changed on a draft or issued unpaid bill")) {
+          throw conflict("INVALID_STATUS_TRANSITION", "Bill cannot be modified in its current status");
+        }
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw conflict("DUPLICATE_RECORD", "Record already exists");
       }
       throw error;
     }

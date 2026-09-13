@@ -1,4 +1,21 @@
-import { BillStatus } from "@prisma/client";
+import { BillAdjustmentSource, BillAdjustmentStatus, BillStatus, DiscountType, VoucherStatus } from "@prisma/client";
+
+export interface VoucherResponse {
+  id: string;
+  branchId: string;
+  code: string;
+  name: string;
+  discountType: DiscountType;
+  discountValue: string;
+  maximumDiscount: string | null;
+  minimumSubtotal: string;
+  usageLimit: number | null;
+  startsAt: string;
+  endsAt: string | null;
+  status: VoucherStatus;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface BillItemResponse {
   id: string;
@@ -11,6 +28,28 @@ export interface BillItemResponse {
   lineAmount: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BillAdjustmentResponse {
+  id: string;
+  billId: string;
+  source: BillAdjustmentSource;
+  discountType: DiscountType;
+  discountValue: string;
+  discountAmount: string;
+  voucherId: string | null;
+  codeSnapshot: string | null;
+  status: BillAdjustmentStatus;
+  appliedById: string;
+  reversedById: string | null;
+  reversedAt: string | null;
+  reverseReason: string | null;
+  isOverride: boolean;
+  overrideById: string | null;
+  overrideReason: string | null;
+  overrideBefore: unknown;
+  overrideAfter: unknown;
+  createdAt: string;
 }
 
 export interface BillResponse {
@@ -37,6 +76,7 @@ export interface BillResponse {
   mergedAt: string | null;
   mergeReason: string | null;
   items: BillItemResponse[];
+  adjustments: BillAdjustmentResponse[];
   createdAt: string;
   updatedAt: string;
 }

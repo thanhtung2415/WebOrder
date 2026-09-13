@@ -66,7 +66,7 @@ describe("Phase 10 billing", () => {
     expect(bill.status).toBe(BillStatus.DRAFT);
     expect(bill.items).toHaveLength(1);
     expect(bill.items[0].quantity).toBe(2);
-    expect(bill.total).toBe("50000.00");
+    expect(bill.total).toBe("54000.00");
 
     await request(app.getHttpServer())
       .post("/api/v1/bills")
@@ -110,7 +110,7 @@ describe("Phase 10 billing", () => {
 
     const split = dataOf<{ sourceBill: BillResponse; bills: BillResponse[] }>(response.body);
     expect(split.sourceBill.items).toHaveLength(0);
-    expect(split.bills.map((bill) => Number(bill.total)).sort((a, b) => a - b)).toEqual([25000, 50000]);
+    expect(split.bills.map((bill) => Number(bill.total)).sort((a, b) => a - b)).toEqual([27000, 54000]);
     await expect(totalAllocated(fixture.orderItemIds[0])).resolves.toBe(3);
 
     await request(app.getHttpServer())
@@ -132,7 +132,7 @@ describe("Phase 10 billing", () => {
     const merged = await mergeBills(setup.branchId, second.id, [first.id], randomUUID());
     expect(merged.id).toBe(second.id);
     expect(merged.items).toHaveLength(2);
-    expect(merged.total).toBe("50000.00");
+    expect(merged.total).toBe("54000.00");
 
     const source = await prisma.bill.findUniqueOrThrow({ where: { id: first.id } });
     expect(source.status).toBe(BillStatus.MERGED);

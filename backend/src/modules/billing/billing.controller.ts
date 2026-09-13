@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { BranchContext } from "../auth/branch-context";
 import { CurrentBranch } from "../auth/current-branch.decorator";
@@ -7,8 +7,8 @@ import { PermissionGuard } from "../auth/guards/permission.guard";
 import { SupabaseAuthGuard } from "../auth/guards/supabase-auth.guard";
 import { RequirePermissions } from "../auth/require-permissions.decorator";
 import { BillingService } from "./billing.service";
-import { BillResponse, SessionBillingResponse } from "./billing.types";
-import { CreateBillDto, MergeBillsDto, SplitBillDto, VoidBillDto } from "./dto/billing.dto";
+import { BillResponse, SessionBillingResponse, VoucherResponse } from "./billing.types";
+import { ApplyDirectDiscountDto, ApplyVoucherDto, CreateBillDto, CreateVoucherDto, MergeBillsDto, ReverseBillAdjustmentDto, SplitBillDto, UpdateVoucherDto, VoidBillDto } from "./dto/billing.dto";
 
 @ApiTags("billing")
 @ApiBearerAuth()
@@ -60,5 +60,44 @@ export class BillingController {
   @RequirePermissions("BILL_VOID")
   voidBill(@Param("id") id: string, @Body() dto: VoidBillDto, @Headers("idempotency-key") idempotencyKey: string | undefined, @CurrentBranch() context: BranchContext): Promise<BillResponse> {
     return this.billingService.voidBill(id, dto, idempotencyKey, context);
+  }
+
+  @Get("vouchers")
+  @RequirePermissions("VOUCHER_MANAGE")
+  listVouchers(@CurrentBranch() context: BranchContext): Promise<{ items: VoucherResponse[] }> {
+    return this.billingService.listVouchers(context);
+  }
+
+  @Post("vouchers")
+  @RequirePermissions("VOUCHER_MANAGE")
+  createVoucher(@Body() dto: CreateVoucherDto, @CurrentBranch() context: BranchContext): Promise<VoucherResponse> {
+    return this.billingService.createVoucher(dto, context);
+  }
+
+  @Patch("vouchers/:id")
+  @RequirePermissions("VOUCHER_MANAGE")
+  updateVoucher(@Param("id") id: string, @Body() dto: UpdateVoucherDto, @CurrentBranch() context: BranchContext): Promise<VoucherResponse> {
+    return this.billingService.updateVoucher(id, dto, context);
+  }
+
+  @Post("bills/:id/voucher-applications")
+  @HttpCode(200)
+  @RequirePermissions("DISCOUNT_APPLY")
+  applyVoucher(@Param("id") id: string, @Body() dto: ApplyVoucherDto, @Headers("idempotency-key") idempotencyKey: string | undefined, @CurrentBranch() context: BranchContext): Promise<BillResponse> {
+    return this.billingService.applyVoucher(id, dto, idempotencyKey, context);
+  }
+
+  @Post("bills/:id/direct-discounts")
+  @HttpCode(200)
+  @RequirePermissions("DISCOUNT_APPLY")
+  applyDirectDiscount(@Param("id") id: string, @Body() dto: ApplyDirectDiscountDto, @Headers("idempotency-key") idempotencyKey: string | undefined, @CurrentBranch() context: BranchContext): Promise<BillResponse> {
+    return this.billingService.applyDirectDiscount(id, dto, idempotencyKey, context);
+  }
+
+  @Post("bill-adjustments/:id/reversal")
+  @HttpCode(200)
+  @RequirePermissions("DISCOUNT_APPLY")
+  reverseAdjustment(@Param("id") id: string, @Body() dto: ReverseBillAdjustmentDto, @Headers("idempotency-key") idempotencyKey: string | undefined, @CurrentBranch() context: BranchContext): Promise<BillResponse> {
+    return this.billingService.reverseAdjustment(id, dto, idempotencyKey, context);
   }
 }

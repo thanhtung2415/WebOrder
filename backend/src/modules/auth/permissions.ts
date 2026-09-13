@@ -85,6 +85,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<SystemRoleCode, readonly Permissio
     "BILL_MERGE",
     "BILL_ISSUE",
     "BILL_VOID",
+    "DISCOUNT_APPLY",
     "PAYMENT_READ",
     "PAYMENT_CREATE",
     "PAYMENT_CONFIRM"
