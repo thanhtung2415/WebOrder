@@ -24,7 +24,7 @@ export const vi = {
   auth: {
     brandVisualLabel: "Không gian quán",
     visualEyebrow: "Vận hành tập trung",
-    visualTitle: "Một điểm vào cho toàn bộ đội ngũ quán.",
+    visualTitle: "Vận hành quán, tinh gọn và bình tĩnh.",
     visualDescription: "Quản lý nhân sự, đơn hàng và vận hành hằng ngày từ đúng khu vực làm việc của bạn.",
     secureAccess: "Quyền truy cập luôn được xác minh bởi máy chủ",
     customerArea: "Khu vực khách hàng",
@@ -33,6 +33,7 @@ export const vi = {
     registerTitle: "Tạo yêu cầu tài khoản",
     loginDescription: "Chọn khu vực làm việc và tiếp tục bằng tài khoản Google đã được cấp quyền.",
     registerDescription: "Đăng ký tài khoản nhân viên mới để Admin xem xét và phê duyệt.",
+    adminRegisterDescriptionShort: "Tài khoản Admin chỉ được tạo hoặc cấp quyền qua quy trình quản trị bảo mật.",
     modeLabel: "Chọn đăng nhập hoặc đăng ký",
     loginTab: "Đăng nhập",
     registerTab: "Đăng ký",

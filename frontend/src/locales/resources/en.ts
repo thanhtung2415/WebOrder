@@ -24,7 +24,7 @@ export const en = {
   auth: {
     brandVisualLabel: "Cafe workspace",
     visualEyebrow: "Connected operations",
-    visualTitle: "One secure entry point for your entire team.",
+    visualTitle: "Calm, considered cafe operations.",
     visualDescription: "Manage people, orders, and daily operations from the workspace assigned to you.",
     secureAccess: "Access permissions are always verified by the server",
     customerArea: "Customer area",
@@ -33,6 +33,7 @@ export const en = {
     registerTitle: "Request an account",
     loginDescription: "Choose your workspace and continue with an authorized Google account.",
     registerDescription: "Request a new staff account for an Admin to review and approve.",
+    adminRegisterDescriptionShort: "Admin accounts can only be created or authorized through the secured administration process.",
     modeLabel: "Choose sign in or register",
     loginTab: "Sign in",
     registerTab: "Register",
