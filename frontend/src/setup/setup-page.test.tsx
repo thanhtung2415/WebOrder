@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../locales/i18n";
 import { SetupPage } from "./setup-page";
 import { AuthCallbackRedirect } from "../auth/auth-redirect";
+import { ApiClientError } from "../services/api-client";
 
 const completeSetupMock = vi.fn();
 const fetchSetupStatusMock = vi.fn();
@@ -48,6 +49,7 @@ function renderSetup(initialPath = "/setup"): void {
         <Routes>
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/auth/callback" element={<AuthCallbackRedirect />} />
+          <Route path="/login" element={<div>Login ready</div>} />
           <Route path="/admin" element={<div>Admin ready</div>} />
           <Route path="/staff" element={<div>Staff ready</div>} />
           <Route path="/pending" element={<div>Pending ready</div>} />
@@ -89,12 +91,12 @@ describe("SetupPage", () => {
     expect(await screen.findByText("Đăng nhập Google để thiết lập")).toBeInTheDocument();
   });
 
-  it("redirects completed unauthenticated setup visitors to normal staff login", async () => {
+  it("redirects completed unauthenticated setup visitors to normal login", async () => {
     authState = { session: null, accessToken: null, isLoading: false };
     fetchSetupStatusMock.mockResolvedValue({ status: "COMPLETED" });
     renderSetup();
 
-    expect(await screen.findByText("Staff ready")).toBeInTheDocument();
+    expect(await screen.findByText("Login ready")).toBeInTheDocument();
     expect(screen.queryByText("Đăng nhập Google để thiết lập")).not.toBeInTheDocument();
   });
 
@@ -136,6 +138,27 @@ describe("SetupPage", () => {
     renderSetup("/auth/callback");
 
     expect(await screen.findByText("Admin ready")).toBeInTheDocument();
+  });
+
+  it("routes an explicit new staff registration to pending", async () => {
+    fetchSetupStatusMock.mockResolvedValue({ status: "COMPLETED" });
+    fetchAuthMeMock.mockRejectedValue(new ApiClientError("USER_NOT_REGISTERED", "Not registered", "request-id"));
+    sessionStorage.setItem("weborder.authIntent", JSON.stringify({ mode: "REGISTER", area: "STAFF" }));
+
+    renderSetup("/auth/callback");
+
+    expect(await screen.findByText("Pending ready")).toBeInTheDocument();
+  });
+
+  it("does not turn an unknown admin login into a staff registration", async () => {
+    fetchSetupStatusMock.mockResolvedValue({ status: "COMPLETED" });
+    fetchAuthMeMock.mockRejectedValue(new ApiClientError("USER_NOT_REGISTERED", "Not registered", "request-id"));
+    sessionStorage.setItem("weborder.authIntent", JSON.stringify({ mode: "LOGIN", area: "ADMIN" }));
+
+    renderSetup("/auth/callback");
+
+    expect(await screen.findByText("Login ready")).toBeInTheDocument();
+    expect(screen.queryByText("Pending ready")).not.toBeInTheDocument();
   });
 
   it("uses the restored callback session before resolving admin access", async () => {

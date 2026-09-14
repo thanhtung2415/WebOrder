@@ -56,7 +56,7 @@ function renderMenu(queryClient: QueryClient): void {
       <MemoryRouter initialEntries={["/admin"]}>
         <Routes>
           <Route path="/admin" element={<AccountMenu area="ADMIN" me={authMe()} />} />
-          <Route path="/staff" element={<div>Login ready</div>} />
+          <Route path="/login" element={<div>Login ready</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>

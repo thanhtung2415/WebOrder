@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AccountStatePage } from "../auth/account-state-page";
@@ -12,7 +12,7 @@ import { AdminOutletContext } from "../admin/admin-context";
 import { useBranchStore } from "../admin/branch-store";
 
 export function StaffLayout(): ReactElement {
-  const { accessToken, isLoading, signInWithGoogle, signOut } = useAuthSession();
+  const { accessToken, isLoading, signOut } = useAuthSession();
   const { activeBranchId, setActiveBranchId } = useBranchStore();
   const meQuery = useQuery({
     queryKey: ["auth-me", accessToken],
@@ -39,15 +39,7 @@ export function StaffLayout(): ReactElement {
   }
 
   if (!accessToken) {
-    return (
-      <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-6 py-10">
-        <section className="space-y-4">
-          <h1 className="text-3xl font-semibold">Đăng nhập staff</h1>
-          <p className="text-sm text-muted-foreground">Dùng Google để vào khu vực vận hành.</p>
-          <Button type="button" onClick={() => void signInWithGoogle()}>Đăng nhập Google</Button>
-        </section>
-      </main>
-    );
+    return <Navigate to="/login?area=staff" replace />;
   }
 
   if (meQuery.isError) {

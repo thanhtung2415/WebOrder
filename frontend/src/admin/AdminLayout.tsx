@@ -40,7 +40,7 @@ export function AdminLayout(): ReactElement {
   }
 
   if (!accessToken) {
-    return <Navigate to="/staff" replace />;
+    return <Navigate to="/login?area=admin" replace />;
   }
 
   if (meQuery.isError) {

@@ -6,6 +6,7 @@ import { CategoryManagementPage, OptionManagementPage, ProductManagementPage } f
 import { IngredientManagementPage, RecipeManagementPage, UnitManagementPage } from "../admin/RecipePages";
 import { TableManagementPage } from "../admin/TablePages";
 import { AuthCallbackRedirect } from "../auth/auth-redirect";
+import { LoginPage } from "../auth/login-page";
 import { PendingPage } from "../auth/pending-page";
 import { CustomerLayout } from "../customer/CustomerLayout";
 import { CustomerMenuPage } from "../customer/CustomerMenuPage";
@@ -23,6 +24,10 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
     {
       path: "/",
       element: <Navigate to="/customer" replace />
+    },
+    {
+      path: "/login",
+      element: <LoginPage />
     },
     {
       path: "/setup",

@@ -47,11 +47,13 @@ function renderPending(): void {
 
 describe("PendingPage", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     fetchAuthMeMock.mockReset();
     registerStaffMock.mockReset();
   });
 
   it("registers an unknown staff identity only once", async () => {
+    sessionStorage.setItem("weborder.authIntent", JSON.stringify({ mode: "REGISTER", area: "STAFF" }));
     fetchAuthMeMock.mockRejectedValue(new ApiClientError("USER_NOT_REGISTERED", "Not registered", "request-id"));
     registerStaffMock.mockRejectedValue(new ApiClientError("INVALID_TOKEN", "Invalid token", "request-id"));
 
@@ -64,6 +66,15 @@ describe("PendingPage", () => {
 
   it("does not register when auth me rejects the JWT", async () => {
     fetchAuthMeMock.mockRejectedValue(new ApiClientError("INVALID_TOKEN", "Invalid token", "request-id"));
+
+    renderPending();
+
+    expect(await screen.findByText("Tài khoản đang chờ duyệt")).toBeInTheDocument();
+    expect(registerStaffMock).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-register an unknown identity without an explicit staff registration intent", async () => {
+    fetchAuthMeMock.mockRejectedValue(new ApiClientError("USER_NOT_REGISTERED", "Not registered", "request-id"));
 
     renderPending();
 

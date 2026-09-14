@@ -28,7 +28,7 @@ export function AccountMenu({ area, me }: AccountMenuProps): ReactElement {
       await signOut();
       queryClient.clear();
       setActiveBranchId(null);
-      navigate("/staff", { replace: true });
+      navigate("/login", { replace: true });
     } catch {
       setLogoutError(true);
       setIsSigningOut(false);

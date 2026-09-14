@@ -5,13 +5,14 @@ import { Navigate } from "react-router-dom";
 import { useAuthSession } from "./use-auth-session";
 import { AccountStatePage } from "./account-state-page";
 import { isAuthorizedAdmin } from "./auth-routing";
+import { clearAuthIntent, readAuthIntent } from "./auth-intent";
 import { Button } from "../components/ui/button";
 import { ApiClientError } from "../services/api-client";
 import { fetchAuthMe, registerStaff } from "../setup/setup-api";
 
 export function PendingPage(): ReactElement {
   const { t } = useTranslation();
-  const { accessToken, isLoading, signInWithGoogle, signOut } = useAuthSession();
+  const { accessToken, isLoading, signOut } = useAuthSession();
   const queryClient = useQueryClient();
   const attemptedRegistrationToken = useRef<string | null>(null);
   const meQuery = useQuery({
@@ -22,10 +23,16 @@ export function PendingPage(): ReactElement {
   const registration = useMutation({
     mutationFn: () => registerStaff(accessToken ?? ""),
     onSuccess: async () => {
+      clearAuthIntent();
       await queryClient.invalidateQueries({ queryKey: ["auth-me", accessToken] });
     }
   });
-  const shouldRegister = meQuery.error instanceof ApiClientError && meQuery.error.code === "USER_NOT_REGISTERED";
+  const intent = readAuthIntent();
+  const shouldRegister =
+    meQuery.error instanceof ApiClientError &&
+    meQuery.error.code === "USER_NOT_REGISTERED" &&
+    intent?.mode === "REGISTER" &&
+    intent.area === "STAFF";
 
   useEffect(() => {
     if (accessToken && shouldRegister && attemptedRegistrationToken.current !== accessToken) {
@@ -39,17 +46,7 @@ export function PendingPage(): ReactElement {
   }
 
   if (!accessToken) {
-    return (
-      <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-6 py-10">
-        <section className="space-y-6">
-          <h1 className="text-3xl font-semibold">{t("pending.signInTitle")}</h1>
-          <p className="text-sm text-muted-foreground">{t("pending.signInDescription")}</p>
-          <Button type="button" onClick={() => void signInWithGoogle()}>
-            {t("setup.signInGoogle")}
-          </Button>
-        </section>
-      </main>
-    );
+    return <Navigate to="/login?mode=register&area=staff" replace />;
   }
 
   if (meQuery.data?.accountStatus === "ACTIVE") {

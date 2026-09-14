@@ -40,6 +40,10 @@ function renderRoute(path: string): void {
         children: [{ index: true, element: <ShellPage namespace="customer" /> }]
       },
       {
+        path: "/login",
+        element: <div>Login ready</div>
+      },
+      {
         path: "/staff",
         element: <StaffLayout />,
         children: [{ index: true, element: <ShellPage namespace="staff" /> }]
@@ -123,12 +127,12 @@ describe("router shells", () => {
     expect(screen.getByText("Staff")).toBeInTheDocument();
   });
 
-  it("redirects unauthenticated admin routes to the staff login", async () => {
+  it("redirects unauthenticated admin routes to the shared login", async () => {
     authState = { session: null, accessToken: null, isLoading: false };
 
     renderRoute("/admin");
 
-    expect(await screen.findByText("Đăng nhập staff")).toBeInTheDocument();
+    expect(await screen.findByText("Login ready")).toBeInTheDocument();
     expect(screen.queryByText("WebOrder Admin")).not.toBeInTheDocument();
   });
 });
