@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { StrictMode, type ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthSessionProvider } from "./auth-session-provider";
 import { useAuthSession } from "./use-auth-session";
@@ -80,16 +80,18 @@ describe("AuthSessionProvider", () => {
     exchangeCodeForSessionMock.mockResolvedValue({ data: { session: { access_token: "callback-access-token" } }, error: null });
 
     render(
-      <AuthSessionProvider>
-        <Probe />
-      </AuthSessionProvider>
+      <StrictMode>
+        <AuthSessionProvider>
+          <Probe />
+        </AuthSessionProvider>
+      </StrictMode>
     );
 
     expect(await screen.findByText("callback-access-token")).toBeInTheDocument();
     expect(exchangeCodeForSessionMock).toHaveBeenCalledWith("oauth-code");
     expect(exchangeCodeForSessionMock).toHaveBeenCalledTimes(1);
     expect(getUserMock).toHaveBeenCalledWith("callback-access-token");
-    expect(onAuthStateChangeMock).toHaveBeenCalledTimes(1);
+    expect(onAuthStateChangeMock).toHaveBeenCalledTimes(2);
     expect(replaceStateSpy).toHaveBeenCalledWith({}, document.title, "/staff");
   });
 

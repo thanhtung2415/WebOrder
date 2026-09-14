@@ -8,6 +8,23 @@ interface AuthSessionProviderProps {
   children: ReactNode;
 }
 
+let oauthExchange:
+  | {
+      code: string;
+      promise: ReturnType<typeof supabase.auth.exchangeCodeForSession>;
+    }
+  | undefined;
+
+function exchangeOAuthCodeOnce(code: string): ReturnType<typeof supabase.auth.exchangeCodeForSession> {
+  if (!oauthExchange || oauthExchange.code !== code) {
+    oauthExchange = {
+      code,
+      promise: supabase.auth.exchangeCodeForSession(code)
+    };
+  }
+  return oauthExchange.promise;
+}
+
 export function AuthSessionProvider({ children }: AuthSessionProviderProps): ReactElement {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,6 +44,9 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps): Rea
     }
 
     async function verifyAndPublish(nextSession: Session | null): Promise<void> {
+      if (!mounted) {
+        return;
+      }
       const sequence = ++verificationSequence;
       if (!nextSession) {
         publishSession(null);
@@ -45,7 +65,7 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps): Rea
       let restoredSession: Session | null;
 
       if (code) {
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        const { data, error } = await exchangeOAuthCodeOnce(code);
         if (error) {
           throw error;
         }
