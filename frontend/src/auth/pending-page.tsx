@@ -11,7 +11,7 @@ import { fetchAuthMe, registerStaff } from "../setup/setup-api";
 
 export function PendingPage(): ReactElement {
   const { t } = useTranslation();
-  const { accessToken, isLoading, signInWithGoogle } = useAuthSession();
+  const { accessToken, isLoading, signInWithGoogle, signOut } = useAuthSession();
   const queryClient = useQueryClient();
   const attemptedRegistrationToken = useRef<string | null>(null);
   const meQuery = useQuery({
@@ -69,6 +69,9 @@ export function PendingPage(): ReactElement {
         <h1 className="text-3xl font-semibold">{t("pending.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("pending.description")}</p>
         {registration.isPending ? <p className="text-sm text-muted-foreground">{t("pending.registering")}</p> : null}
+        <Button type="button" variant="outline" onClick={signOut}>
+          Đăng xuất
+        </Button>
       </section>
     </main>
   );
