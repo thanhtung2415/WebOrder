@@ -1,7 +1,8 @@
 import { ReactElement, ReactNode, useEffect, useMemo, useState } from "react";
 import { AuthSessionContext, AuthSessionContextValue } from "./auth-session-context";
+import { setCurrentAccessToken } from "./auth-token-store";
 import { supabase } from "./supabase-client";
-import { Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 
 interface AuthSessionProviderProps {
   children: ReactNode;
@@ -13,41 +14,84 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps): Rea
 
   useEffect(() => {
     let mounted = true;
+    let initializing = true;
+    let verificationSequence = 0;
+
+    function publishSession(nextSession: Session | null): void {
+      if (!mounted) {
+        return;
+      }
+      setCurrentAccessToken(nextSession?.access_token ?? null);
+      setSession(nextSession);
+      setIsLoading(false);
+    }
+
+    async function verifyAndPublish(nextSession: Session | null): Promise<void> {
+      const sequence = ++verificationSequence;
+      if (!nextSession) {
+        publishSession(null);
+        return;
+      }
+
+      const { error } = await supabase.auth.getUser(nextSession.access_token);
+      if (!mounted || sequence !== verificationSequence) {
+        return;
+      }
+      publishSession(error ? null : nextSession);
+    }
 
     async function restoreSession(): Promise<void> {
       const code = new URLSearchParams(window.location.search).get("code");
+      let restoredSession: Session | null;
 
       if (code) {
-        try {
-          await supabase.auth.exchangeCodeForSession(code);
-          window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
-        } catch {
-          // If Supabase already consumed the OAuth code, fall back to reading the stored session.
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          throw error;
         }
+        restoredSession = data.session;
+        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+      } else {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          throw error;
+        }
+        restoredSession = data.session;
       }
 
-      const { data } = await supabase.auth.getSession();
-      if (mounted) {
-        setSession(data.session);
-        setIsLoading(false);
+      await verifyAndPublish(restoredSession);
+    }
+
+    function handleAuthChange(event: AuthChangeEvent, nextSession: Session | null): void {
+      if (initializing) {
+        return;
+      }
+      if (event === "SIGNED_OUT") {
+        publishSession(null);
+        return;
+      }
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        window.setTimeout(() => {
+          void verifyAndPublish(nextSession);
+        }, 0);
       }
     }
 
-    void restoreSession().catch(() => {
-      if (mounted) {
-        setIsLoading(false);
-      }
-    });
-
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setIsLoading(false);
-    });
+    } = supabase.auth.onAuthStateChange(handleAuthChange);
+
+    void restoreSession()
+      .catch(() => {
+        publishSession(null);
+      })
+      .finally(() => {
+        initializing = false;
+      });
 
     return () => {
       mounted = false;
+      setCurrentAccessToken(null);
       subscription.unsubscribe();
     };
   }, []);

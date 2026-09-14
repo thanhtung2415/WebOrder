@@ -1,10 +1,11 @@
 import type { ReactElement } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { ThemeToggle } from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
 import { AccountStatePage } from "../auth/account-state-page";
+import { isAuthorizedAdmin } from "../auth/auth-routing";
 import { useAuthSession } from "../auth/use-auth-session";
 import { fetchAuthMe } from "../setup/setup-api";
 import { AdminOutletContext } from "./admin-context";
@@ -67,6 +68,10 @@ export function AdminLayout(): ReactElement {
 
   if (!me || me.accountStatus !== "ACTIVE") {
     return <AccountStatePage status={me?.accountStatus ?? "PENDING"} />;
+  }
+
+  if (!isAuthorizedAdmin(me)) {
+    return <Navigate to="/staff" replace />;
   }
 
   const selectedBranchId = activeBranchId ?? me.activeBranch?.id ?? activeMemberships[0]?.branch.id ?? null;

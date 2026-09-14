@@ -1,4 +1,5 @@
 import { createRequestId } from "../utils/request-id";
+import { getCurrentAccessToken } from "../auth/auth-token-store";
 
 export interface StandardSuccessResponse<TData> {
   success: true;
@@ -79,8 +80,9 @@ export class ApiClient {
     if (!(options.body instanceof FormData)) {
       headers["Content-Type"] = "application/json";
     }
-    if (options.accessToken) {
-      headers.Authorization = `Bearer ${options.accessToken}`;
+    const accessToken = options.accessToken ?? getCurrentAccessToken();
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
     }
     if (options.qrSessionToken) {
       headers.Authorization = `Bearer ${options.qrSessionToken}`;

@@ -7,13 +7,19 @@ import { useAuthSession } from "./use-auth-session";
 const signInWithOAuthMock = vi.fn();
 const exchangeCodeForSessionMock = vi.fn();
 const getSessionMock = vi.fn();
+const getUserMock = vi.fn();
 const unsubscribeMock = vi.fn();
+const onAuthStateChangeMock = vi.fn((callback: unknown) => {
+  void callback;
+  return { data: { subscription: { unsubscribe: unsubscribeMock } } };
+});
 
 vi.mock("./supabase-client", () => ({
   supabase: {
     auth: {
       getSession: (...args: unknown[]) => getSessionMock(...args),
-      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: unsubscribeMock } } })),
+      getUser: (...args: unknown[]) => getUserMock(...args),
+      onAuthStateChange: (callback: unknown) => onAuthStateChangeMock(callback),
       exchangeCodeForSession: (...args: unknown[]) => exchangeCodeForSessionMock(...args),
       signInWithOAuth: (...args: unknown[]) => signInWithOAuthMock(...args),
       signOut: vi.fn()
@@ -38,7 +44,10 @@ describe("AuthSessionProvider", () => {
     signInWithOAuthMock.mockReset();
     exchangeCodeForSessionMock.mockReset();
     getSessionMock.mockReset();
-    getSessionMock.mockResolvedValue({ data: { session: null } });
+    getUserMock.mockReset();
+    onAuthStateChangeMock.mockClear();
+    getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
+    getUserMock.mockResolvedValue({ data: { user: { id: "auth-user-id" } }, error: null });
     Object.defineProperty(window, "location", {
       configurable: true,
       value: { origin: "http://localhost:5173", search: "", pathname: "/", hash: "" }
@@ -68,8 +77,7 @@ describe("AuthSessionProvider", () => {
       value: { origin: "http://localhost:5173", search: "?code=oauth-code", pathname: "/staff", hash: "" }
     });
     const replaceStateSpy = vi.spyOn(window.history, "replaceState");
-    exchangeCodeForSessionMock.mockResolvedValue({ data: { session: { access_token: "callback-access-token" } } });
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "callback-access-token" } } });
+    exchangeCodeForSessionMock.mockResolvedValue({ data: { session: { access_token: "callback-access-token" } }, error: null });
 
     render(
       <AuthSessionProvider>
@@ -79,6 +87,23 @@ describe("AuthSessionProvider", () => {
 
     expect(await screen.findByText("callback-access-token")).toBeInTheDocument();
     expect(exchangeCodeForSessionMock).toHaveBeenCalledWith("oauth-code");
+    expect(exchangeCodeForSessionMock).toHaveBeenCalledTimes(1);
+    expect(getUserMock).toHaveBeenCalledWith("callback-access-token");
+    expect(onAuthStateChangeMock).toHaveBeenCalledTimes(1);
     expect(replaceStateSpy).toHaveBeenCalledWith({}, document.title, "/staff");
+  });
+
+  it("does not expose a session when Supabase rejects getUser", async () => {
+    getSessionMock.mockResolvedValue({ data: { session: { access_token: "expired-access-token" } }, error: null });
+    getUserMock.mockResolvedValue({ data: { user: null }, error: { message: "invalid token" } });
+
+    render(
+      <AuthSessionProvider>
+        <Probe />
+      </AuthSessionProvider>
+    );
+
+    expect(await screen.findByText("no-token")).toBeInTheDocument();
+    expect(getUserMock).toHaveBeenCalledWith("expired-access-token");
   });
 });

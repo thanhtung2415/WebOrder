@@ -10,8 +10,6 @@ const completeSetupMock = vi.fn();
 const fetchSetupStatusMock = vi.fn();
 const fetchAuthMeMock = vi.fn();
 const signInWithGoogleMock = vi.fn();
-const exchangeCodeForSessionMock = vi.fn();
-const getSessionMock = vi.fn();
 let authState: {
   session: { access_token: string } | null;
   accessToken: string | null;
@@ -28,15 +26,6 @@ vi.mock("../auth/use-auth-session", () => ({
     signInWithGoogle: signInWithGoogleMock,
     signOut: vi.fn()
   })
-}));
-
-vi.mock("../auth/supabase-client", () => ({
-  supabase: {
-    auth: {
-      exchangeCodeForSession: (...args: unknown[]) => exchangeCodeForSessionMock(...args),
-      getSession: (...args: unknown[]) => getSessionMock(...args)
-    }
-  }
 }));
 
 vi.mock("./setup-api", () => ({
@@ -78,12 +67,8 @@ describe("SetupPage", () => {
       isLoading: false
     };
     signInWithGoogleMock.mockReset();
-    exchangeCodeForSessionMock.mockReset();
-    getSessionMock.mockReset();
     fetchSetupStatusMock.mockResolvedValue({ status: "PENDING" });
     fetchAuthMeMock.mockResolvedValue(authMe());
-    exchangeCodeForSessionMock.mockResolvedValue({ data: { session: { access_token: "callback-access-token" } } });
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "callback-access-token" } } });
     completeSetupMock.mockResolvedValue({
       status: "COMPLETED",
       branch: { id: "branch-id", code: "MAIN", name: "Main Branch", timezone: "Asia/Ho_Chi_Minh" },
@@ -153,15 +138,18 @@ describe("SetupPage", () => {
     expect(await screen.findByText("Admin ready")).toBeInTheDocument();
   });
 
-  it("exchanges the Google OAuth callback code before resolving admin access", async () => {
-    authState = { session: null, accessToken: null, isLoading: false };
+  it("uses the restored callback session before resolving admin access", async () => {
+    authState = {
+      session: { access_token: "callback-access-token" },
+      accessToken: "callback-access-token",
+      isLoading: false
+    };
     fetchSetupStatusMock.mockResolvedValue({ status: "COMPLETED" });
     fetchAuthMeMock.mockResolvedValue(authMe({ roles: ["ADMIN"], permissions: ["STAFF_READ"] }));
 
     renderSetup("/auth/callback?code=oauth-code");
 
     expect(await screen.findByText("Admin ready")).toBeInTheDocument();
-    expect(exchangeCodeForSessionMock).toHaveBeenCalledWith("oauth-code");
     expect(fetchAuthMeMock).toHaveBeenCalledWith("callback-access-token");
     expect(screen.queryByText("Staff ready")).not.toBeInTheDocument();
   });

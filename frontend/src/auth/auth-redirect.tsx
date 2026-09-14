@@ -1,11 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ReactElement, ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { Navigate, useLocation } from "react-router-dom";
-import type { Session } from "@supabase/supabase-js";
+import { Navigate } from "react-router-dom";
 import { AccountStatePage } from "./account-state-page";
 import { isAuthorizedAdmin } from "./auth-routing";
-import { supabase } from "./supabase-client";
 import { useAuthSession } from "./use-auth-session";
 import { fetchAuthMe, fetchSetupStatus, type AuthMeData } from "../setup/setup-api";
 
@@ -18,71 +15,23 @@ export function SetupEntryRedirect({ pendingSetup }: AuthRedirectProps): ReactEl
 }
 
 export function AuthCallbackRedirect(): ReactElement {
-  return <SetupAwareRedirect pendingSetup={<Navigate to="/setup" replace />} unauthenticatedCompletedPath="/staff" resolveCallbackSession />;
+  return <SetupAwareRedirect pendingSetup={<Navigate to="/setup" replace />} unauthenticatedCompletedPath="/staff" />;
 }
 
-function SetupAwareRedirect({
-  pendingSetup,
-  unauthenticatedCompletedPath,
-  resolveCallbackSession = false
-}: AuthRedirectProps & { unauthenticatedCompletedPath: string; resolveCallbackSession?: boolean }): ReactElement {
+function SetupAwareRedirect({ pendingSetup, unauthenticatedCompletedPath }: AuthRedirectProps & { unauthenticatedCompletedPath: string }): ReactElement {
   const { accessToken, isLoading } = useAuthSession();
-  const location = useLocation();
-  const [callbackSession, setCallbackSession] = useState<Session | null>(null);
-  const [isResolvingCallback, setIsResolvingCallback] = useState(resolveCallbackSession);
-  const effectiveAccessToken = accessToken ?? callbackSession?.access_token ?? null;
-
-  useEffect(() => {
-    if (!resolveCallbackSession) {
-      return;
-    }
-
-    let cancelled = false;
-
-    async function resolveSession(): Promise<void> {
-      setIsResolvingCallback(true);
-      const code = new URLSearchParams(location.search).get("code");
-
-      if (code) {
-        try {
-          const { data } = await supabase.auth.exchangeCodeForSession(code);
-          if (!cancelled && data.session) {
-            setCallbackSession(data.session);
-          }
-        } catch {
-          // Supabase may already have consumed the PKCE code during URL detection.
-        }
-      }
-
-      const { data } = await supabase.auth.getSession();
-      if (!cancelled) {
-        setCallbackSession(data.session);
-        setIsResolvingCallback(false);
-      }
-    }
-
-    void resolveSession().catch(() => {
-      if (!cancelled) {
-        setIsResolvingCallback(false);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [location.search, resolveCallbackSession]);
 
   const setupQuery = useQuery({
     queryKey: ["setup-status"],
     queryFn: fetchSetupStatus
   });
   const meQuery = useQuery({
-    queryKey: ["auth-me", effectiveAccessToken],
-    queryFn: () => fetchAuthMe(effectiveAccessToken ?? ""),
-    enabled: setupQuery.data?.status === "COMPLETED" && Boolean(effectiveAccessToken)
+    queryKey: ["auth-me", accessToken],
+    queryFn: () => fetchAuthMe(accessToken ?? ""),
+    enabled: setupQuery.data?.status === "COMPLETED" && Boolean(accessToken)
   });
 
-  if (isLoading || isResolvingCallback || setupQuery.isLoading || meQuery.isLoading) {
+  if (isLoading || setupQuery.isLoading || meQuery.isLoading) {
     return <Loading />;
   }
 
@@ -94,7 +43,7 @@ function SetupAwareRedirect({
     return <>{pendingSetup}</>;
   }
 
-  if (!effectiveAccessToken) {
+  if (!accessToken) {
     return <Navigate to={unauthenticatedCompletedPath} replace />;
   }
 

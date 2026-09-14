@@ -88,6 +88,14 @@ describe("router shells", () => {
 
     expect(await screen.findByText("WebOrder Admin")).toBeInTheDocument();
   });
+
+  it("redirects active non-admin staff away from the admin route", async () => {
+    fetchAuthMeMock.mockResolvedValue(authMe({ roles: ["CASHIER"], permissions: ["BILL_READ"] }));
+
+    renderRoute("/admin");
+
+    expect(await screen.findByText("Staff layout")).toBeInTheDocument();
+  });
 });
 
 function authMe(
