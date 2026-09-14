@@ -130,7 +130,12 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps): Rea
         });
       },
       signOut: async () => {
-        await supabase.auth.signOut();
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+          throw error;
+        }
+        setCurrentAccessToken(null);
+        setSession(null);
       }
     }),
     [isLoading, session]

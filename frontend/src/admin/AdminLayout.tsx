@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { ThemeToggle } from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
+import { AccountMenu } from "../auth/account-menu";
 import { AccountStatePage } from "../auth/account-state-page";
 import { isAuthorizedAdmin } from "../auth/auth-routing";
 import { useAuthSession } from "../auth/use-auth-session";
@@ -12,7 +13,7 @@ import { AdminOutletContext } from "./admin-context";
 import { useBranchStore } from "./branch-store";
 
 export function AdminLayout(): ReactElement {
-  const { accessToken, isLoading, signInWithGoogle, signOut } = useAuthSession();
+  const { accessToken, isLoading, signOut } = useAuthSession();
   const { activeBranchId, setActiveBranchId } = useBranchStore();
   const meQuery = useQuery({
     queryKey: ["auth-me", accessToken],
@@ -24,7 +25,7 @@ export function AdminLayout(): ReactElement {
   const activeMemberships = useMemo(() => me?.memberships.filter((membership) => membership.isActive) ?? [], [me]);
 
   useEffect(() => {
-    if (!me || me.accountStatus !== "ACTIVE") {
+    if (!accessToken || !me || me.accountStatus !== "ACTIVE") {
       return;
     }
     const branchStillAllowed = activeMemberships.some((membership) => membership.branch.id === activeBranchId);
@@ -32,24 +33,14 @@ export function AdminLayout(): ReactElement {
     if (!activeBranchId || !branchStillAllowed) {
       setActiveBranchId(fallbackBranchId);
     }
-  }, [activeBranchId, activeMemberships, me, setActiveBranchId]);
+  }, [accessToken, activeBranchId, activeMemberships, me, setActiveBranchId]);
 
   if (isLoading || meQuery.isLoading) {
     return <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Đang tải tài khoản...</main>;
   }
 
   if (!accessToken) {
-    return (
-      <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-6 py-10">
-        <section className="space-y-4">
-          <h1 className="text-3xl font-semibold">Đăng nhập admin</h1>
-          <p className="text-sm text-muted-foreground">Dùng Google để vào khu vực quản trị.</p>
-          <Button type="button" onClick={() => void signInWithGoogle()}>
-            Đăng nhập Google
-          </Button>
-        </section>
-      </main>
-    );
+    return <Navigate to="/staff" replace />;
   }
 
   if (meQuery.isError) {
@@ -144,6 +135,7 @@ export function AdminLayout(): ReactElement {
               ))}
             </select>
             <ThemeToggle />
+            <AccountMenu area="ADMIN" me={me} />
           </div>
         </div>
       </header>

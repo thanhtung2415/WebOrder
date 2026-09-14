@@ -5,6 +5,7 @@ import { AuthSessionProvider } from "./auth-session-provider";
 import { useAuthSession } from "./use-auth-session";
 
 const signInWithOAuthMock = vi.fn();
+const signOutMock = vi.fn();
 const exchangeCodeForSessionMock = vi.fn();
 const getSessionMock = vi.fn();
 const getUserMock = vi.fn();
@@ -22,18 +23,21 @@ vi.mock("./supabase-client", () => ({
       onAuthStateChange: (callback: unknown) => onAuthStateChangeMock(callback),
       exchangeCodeForSession: (...args: unknown[]) => exchangeCodeForSessionMock(...args),
       signInWithOAuth: (...args: unknown[]) => signInWithOAuthMock(...args),
-      signOut: vi.fn()
+      signOut: (...args: unknown[]) => signOutMock(...args)
     }
   }
 }));
 
 function Probe(): ReactElement {
-  const { accessToken, signInWithGoogle } = useAuthSession();
+  const { accessToken, signInWithGoogle, signOut } = useAuthSession();
   return (
     <>
       <span>{accessToken ?? "no-token"}</span>
       <button type="button" onClick={() => void signInWithGoogle()}>
         Login
+      </button>
+      <button type="button" onClick={() => void signOut()}>
+        Logout
       </button>
     </>
   );
@@ -42,6 +46,8 @@ function Probe(): ReactElement {
 describe("AuthSessionProvider", () => {
   beforeEach(() => {
     signInWithOAuthMock.mockReset();
+    signOutMock.mockReset();
+    signOutMock.mockResolvedValue({ error: null });
     exchangeCodeForSessionMock.mockReset();
     getSessionMock.mockReset();
     getUserMock.mockReset();
@@ -107,5 +113,31 @@ describe("AuthSessionProvider", () => {
 
     expect(await screen.findByText("no-token")).toBeInTheDocument();
     expect(getUserMock).toHaveBeenCalledWith("expired-access-token");
+  });
+
+  it("clears the authenticated state and does not restore it after logout", async () => {
+    getSessionMock.mockResolvedValueOnce({ data: { session: { access_token: "active-access-token" } }, error: null });
+
+    const firstRender = render(
+      <AuthSessionProvider>
+        <Probe />
+      </AuthSessionProvider>
+    );
+
+    expect(await screen.findByText("active-access-token")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Logout" }));
+
+    await waitFor(() => expect(signOutMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("no-token")).toBeInTheDocument();
+
+    firstRender.unmount();
+    getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
+    render(
+      <AuthSessionProvider>
+        <Probe />
+      </AuthSessionProvider>
+    );
+
+    expect(await screen.findByText("no-token")).toBeInTheDocument();
   });
 });

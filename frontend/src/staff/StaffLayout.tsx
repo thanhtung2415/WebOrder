@@ -1,9 +1,9 @@
 import type { ReactElement } from "react";
-import { Navigate, NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AccountStatePage } from "../auth/account-state-page";
-import { isAuthorizedAdmin } from "../auth/auth-routing";
+import { AccountMenu } from "../auth/account-menu";
 import { useAuthSession } from "../auth/use-auth-session";
 import { ThemeToggle } from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
@@ -24,7 +24,7 @@ export function StaffLayout(): ReactElement {
   const activeMemberships = useMemo(() => me?.memberships.filter((membership) => membership.isActive) ?? [], [me]);
 
   useEffect(() => {
-    if (!me || me.accountStatus !== "ACTIVE") {
+    if (!accessToken || !me || me.accountStatus !== "ACTIVE") {
       return;
     }
     const branchStillAllowed = activeMemberships.some((membership) => membership.branch.id === activeBranchId);
@@ -32,7 +32,7 @@ export function StaffLayout(): ReactElement {
     if (!activeBranchId || !branchStillAllowed) {
       setActiveBranchId(fallbackBranchId);
     }
-  }, [activeBranchId, activeMemberships, me, setActiveBranchId]);
+  }, [accessToken, activeBranchId, activeMemberships, me, setActiveBranchId]);
 
   if (isLoading || meQuery.isLoading) {
     return <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Đang tải tài khoản...</main>;
@@ -64,10 +64,6 @@ export function StaffLayout(): ReactElement {
 
   if (!me || me.accountStatus !== "ACTIVE") {
     return <AccountStatePage status={me?.accountStatus ?? "PENDING"} />;
-  }
-
-  if (isAuthorizedAdmin(me)) {
-    return <Navigate to="/admin" replace />;
   }
 
   const selectedBranchId = activeBranchId ?? me.activeBranch?.id ?? activeMemberships[0]?.branch.id ?? null;
@@ -124,6 +120,7 @@ export function StaffLayout(): ReactElement {
               ))}
             </select>
             <ThemeToggle />
+            <AccountMenu area="STAFF" me={me} />
           </div>
         </div>
       </header>

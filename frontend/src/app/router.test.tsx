@@ -11,14 +11,18 @@ import "../locales/i18n";
 
 const fetchAuthMeMock = vi.fn();
 const fetchSetupStatusMock = vi.fn();
+const signOutMock = vi.fn();
+let authState = {
+  session: { access_token: "verified-access-token" } as { access_token: string } | null,
+  accessToken: "verified-access-token" as string | null,
+  isLoading: false
+};
 
 vi.mock("../auth/use-auth-session", () => ({
   useAuthSession: () => ({
-    session: { access_token: "verified-access-token" },
-    accessToken: "verified-access-token",
-    isLoading: false,
+    ...authState,
     signInWithGoogle: vi.fn(),
-    signOut: vi.fn()
+    signOut: signOutMock
   })
 }));
 
@@ -63,6 +67,13 @@ function renderRoute(path: string): void {
 describe("router shells", () => {
   beforeEach(() => {
     localStorage.clear();
+    authState = {
+      session: { access_token: "verified-access-token" },
+      accessToken: "verified-access-token",
+      isLoading: false
+    };
+    signOutMock.mockReset();
+    signOutMock.mockResolvedValue(undefined);
     fetchSetupStatusMock.mockResolvedValue({ status: "COMPLETED" });
     fetchAuthMeMock.mockResolvedValue(authMe());
   });
@@ -75,12 +86,12 @@ describe("router shells", () => {
     expect(await screen.findByText("Staff layout")).toBeInTheDocument();
   });
 
-  it("redirects active admin users away from staff login to admin", async () => {
+  it("allows active admins to switch to the staff area", async () => {
     fetchAuthMeMock.mockResolvedValue(authMe({ roles: ["ADMIN"], permissions: ["STAFF_READ", "BRANCH_READ", "ROLE_READ"] }));
 
     renderRoute("/staff");
 
-    expect(await screen.findByText("WebOrder Admin")).toBeInTheDocument();
+    expect(await screen.findByText("WebOrder Staff")).toBeInTheDocument();
   });
 
   it("renders admin shell", async () => {
@@ -95,6 +106,30 @@ describe("router shells", () => {
     renderRoute("/admin");
 
     expect(await screen.findByText("Staff layout")).toBeInTheDocument();
+  });
+
+  it("shows the account menu in the authenticated admin area", async () => {
+    renderRoute("/admin");
+    expect(await screen.findAllByText("Owner")).toHaveLength(2);
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+  });
+
+  it("shows the account menu in the authenticated staff area", async () => {
+    fetchAuthMeMock.mockResolvedValue(authMe({ roles: ["CASHIER"], permissions: ["BILL_READ"] }));
+
+    renderRoute("/staff");
+
+    expect(await screen.findAllByText("Owner")).toHaveLength(2);
+    expect(screen.getByText("Staff")).toBeInTheDocument();
+  });
+
+  it("redirects unauthenticated admin routes to the staff login", async () => {
+    authState = { session: null, accessToken: null, isLoading: false };
+
+    renderRoute("/admin");
+
+    expect(await screen.findByText("Đăng nhập staff")).toBeInTheDocument();
+    expect(screen.queryByText("WebOrder Admin")).not.toBeInTheDocument();
   });
 });
 
