@@ -83,6 +83,10 @@ export const en = {
     signInDescription: "A new account is registered and waits for approval.",
     title: "Account pending approval",
     description: "Your registration has been received. Admin approval belongs to the staff management phase.",
-    registering: "Registering"
+    registering: "Registering",
+    currentAccount: "Current Google account",
+    switchAccount: "Use another Google account",
+    switchingAccount: "Signing out...",
+    switchAccountError: "The account could not be changed. Please try again."
   }
 };

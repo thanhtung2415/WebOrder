@@ -72,7 +72,10 @@ describe("AuthSessionProvider", () => {
     await waitFor(() =>
       expect(signInWithOAuthMock).toHaveBeenCalledWith({
         provider: "google",
-        options: { redirectTo: "http://localhost:5173/auth/callback" }
+        options: {
+          redirectTo: "http://localhost:5173/auth/callback",
+          queryParams: { prompt: "select_account" }
+        }
       })
     );
   });

@@ -125,7 +125,10 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps): Rea
         await supabase.auth.signInWithOAuth({
           provider: "google",
           options: {
-            redirectTo: `${window.location.origin}${redirectPath}`
+            redirectTo: `${window.location.origin}${redirectPath}`,
+            queryParams: {
+              prompt: "select_account"
+            }
           }
         });
       },

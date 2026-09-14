@@ -83,6 +83,10 @@ export const vi = {
     signInDescription: "Tài khoản mới sẽ được gửi đăng ký và chờ duyệt.",
     title: "Tài khoản đang chờ duyệt",
     description: "Bạn đã đăng ký thành công. Admin sẽ kích hoạt tài khoản ở phase quản lý nhân viên.",
-    registering: "Đang gửi đăng ký"
+    registering: "Đang gửi đăng ký",
+    currentAccount: "Tài khoản Google đang đăng nhập",
+    switchAccount: "Đổi tài khoản Google",
+    switchingAccount: "Đang đăng xuất...",
+    switchAccountError: "Không thể đổi tài khoản. Vui lòng thử lại."
   }
 };

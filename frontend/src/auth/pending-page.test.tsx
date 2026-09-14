@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "../services/api-client";
@@ -8,6 +8,7 @@ import { PendingPage } from "./pending-page";
 
 const fetchAuthMeMock = vi.fn();
 const registerStaffMock = vi.fn();
+const signOutMock = vi.fn();
 
 vi.mock("./use-auth-session", () => ({
   useAuthSession: () => ({
@@ -15,7 +16,7 @@ vi.mock("./use-auth-session", () => ({
     accessToken: "verified-access-token",
     isLoading: false,
     signInWithGoogle: vi.fn(),
-    signOut: vi.fn()
+    signOut: signOutMock
   })
 }));
 
@@ -39,6 +40,7 @@ function renderPending(): void {
           <Route path="/pending" element={<PendingPage />} />
           <Route path="/admin" element={<div>Admin ready</div>} />
           <Route path="/staff" element={<div>Staff ready</div>} />
+          <Route path="/login" element={<div>Login ready</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -50,6 +52,8 @@ describe("PendingPage", () => {
     sessionStorage.clear();
     fetchAuthMeMock.mockReset();
     registerStaffMock.mockReset();
+    signOutMock.mockReset();
+    signOutMock.mockResolvedValue(undefined);
   });
 
   it("registers an unknown staff identity only once", async () => {
@@ -89,6 +93,18 @@ describe("PendingPage", () => {
 
     expect(await screen.findByText("Admin ready")).toBeInTheDocument();
     expect(registerStaffMock).not.toHaveBeenCalled();
+  });
+
+  it("shows the pending email and lets the user switch Google accounts", async () => {
+    fetchAuthMeMock.mockResolvedValue({ ...authMe(), accountStatus: "PENDING" });
+
+    renderPending();
+
+    expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Đổi tài khoản Google" }));
+
+    await waitFor(() => expect(signOutMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Login ready")).toBeInTheDocument();
   });
 });
 
