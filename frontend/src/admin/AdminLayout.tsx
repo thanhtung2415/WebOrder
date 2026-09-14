@@ -43,7 +43,7 @@ export function AdminLayout(): ReactElement {
         <section className="space-y-4">
           <h1 className="text-3xl font-semibold">Đăng nhập admin</h1>
           <p className="text-sm text-muted-foreground">Dùng Google để vào khu vực quản trị.</p>
-          <Button type="button" onClick={signInWithGoogle}>
+          <Button type="button" onClick={() => void signInWithGoogle()}>
             Đăng nhập Google
           </Button>
         </section>

@@ -33,7 +33,7 @@ export function PendingPage(): ReactElement {
         <section className="space-y-6">
           <h1 className="text-3xl font-semibold">{t("pending.signInTitle")}</h1>
           <p className="text-sm text-muted-foreground">{t("pending.signInDescription")}</p>
-          <Button type="button" onClick={signInWithGoogle}>
+          <Button type="button" onClick={() => void signInWithGoogle()}>
             {t("setup.signInGoogle")}
           </Button>
         </section>

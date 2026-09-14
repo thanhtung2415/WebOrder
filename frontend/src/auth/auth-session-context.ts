@@ -5,7 +5,7 @@ export interface AuthSessionContextValue {
   session: Session | null;
   accessToken: string | null;
   isLoading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: (redirectPath?: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 

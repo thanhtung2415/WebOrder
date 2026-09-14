@@ -14,9 +14,27 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps): Rea
   useEffect(() => {
     let mounted = true;
 
-    void supabase.auth.getSession().then(({ data }) => {
+    async function restoreSession(): Promise<void> {
+      const code = new URLSearchParams(window.location.search).get("code");
+
+      if (code) {
+        try {
+          await supabase.auth.exchangeCodeForSession(code);
+          window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+        } catch {
+          // If Supabase already consumed the OAuth code, fall back to reading the stored session.
+        }
+      }
+
+      const { data } = await supabase.auth.getSession();
       if (mounted) {
         setSession(data.session);
+        setIsLoading(false);
+      }
+    }
+
+    void restoreSession().catch(() => {
+      if (mounted) {
         setIsLoading(false);
       }
     });
@@ -39,11 +57,11 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps): Rea
       session,
       accessToken: session?.access_token ?? null,
       isLoading,
-      signInWithGoogle: async () => {
+      signInWithGoogle: async (redirectPath = "/auth/callback") => {
         await supabase.auth.signInWithOAuth({
           provider: "google",
           options: {
-            redirectTo: `${window.location.origin}/setup`
+            redirectTo: `${window.location.origin}${redirectPath}`
           }
         });
       },

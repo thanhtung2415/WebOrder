@@ -2,18 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, ReactElement, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate } from "react-router-dom";
+import { SetupEntryRedirect } from "../auth/auth-redirect";
 import { useAuthSession } from "../auth/use-auth-session";
 import { Button } from "../components/ui/button";
 import { ApiClientError } from "../services/api-client";
 import { completeSetup } from "./setup-api";
-import { SetupStatusGuard } from "./setup-status-guard";
 
 export function SetupPage(): ReactElement {
-  return (
-    <SetupStatusGuard allowWhen="PENDING">
-      <SetupForm />
-    </SetupStatusGuard>
-  );
+  return <SetupEntryRedirect pendingSetup={<SetupForm />} />;
 }
 
 function SetupForm(): ReactElement {
@@ -68,7 +64,7 @@ function SetupForm(): ReactElement {
             <h1 className="text-3xl font-semibold">{t("setup.signInTitle")}</h1>
             <p className="text-sm text-muted-foreground">{t("setup.signInDescription")}</p>
           </div>
-          <Button type="button" onClick={signInWithGoogle}>
+          <Button type="button" onClick={() => void signInWithGoogle()}>
             {t("setup.signInGoogle")}
           </Button>
         </section>
@@ -147,9 +143,5 @@ function SetupForm(): ReactElement {
 }
 
 export function AdminSetupRedirect(): ReactElement {
-  return (
-    <SetupStatusGuard allowWhen="COMPLETED">
-      <Navigate to="/admin" replace />
-    </SetupStatusGuard>
-  );
+  return <Navigate to="/auth/callback" replace />;
 }

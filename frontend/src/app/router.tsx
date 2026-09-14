@@ -5,6 +5,7 @@ import { InventoryManagementPage } from "../admin/InventoryPages";
 import { CategoryManagementPage, OptionManagementPage, ProductManagementPage } from "../admin/MenuPages";
 import { IngredientManagementPage, RecipeManagementPage, UnitManagementPage } from "../admin/RecipePages";
 import { TableManagementPage } from "../admin/TablePages";
+import { AuthCallbackRedirect } from "../auth/auth-redirect";
 import { PendingPage } from "../auth/pending-page";
 import { CustomerLayout } from "../customer/CustomerLayout";
 import { CustomerMenuPage } from "../customer/CustomerMenuPage";
@@ -30,6 +31,10 @@ export function createAppRouter(): ReturnType<typeof createBrowserRouter> {
     {
       path: "/pending",
       element: <PendingPage />
+    },
+    {
+      path: "/auth/callback",
+      element: <AuthCallbackRedirect />
     },
     {
       path: "/customer",

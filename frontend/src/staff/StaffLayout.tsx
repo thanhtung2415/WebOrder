@@ -1,8 +1,9 @@
 import type { ReactElement } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Navigate, NavLink, Outlet } from "react-router-dom";
 import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AccountStatePage } from "../auth/account-state-page";
+import { isAuthorizedAdmin } from "../auth/auth-routing";
 import { useAuthSession } from "../auth/use-auth-session";
 import { ThemeToggle } from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
@@ -43,7 +44,7 @@ export function StaffLayout(): ReactElement {
         <section className="space-y-4">
           <h1 className="text-3xl font-semibold">Đăng nhập staff</h1>
           <p className="text-sm text-muted-foreground">Dùng Google để vào khu vực vận hành.</p>
-          <Button type="button" onClick={signInWithGoogle}>Đăng nhập Google</Button>
+          <Button type="button" onClick={() => void signInWithGoogle()}>Đăng nhập Google</Button>
         </section>
       </main>
     );
@@ -63,6 +64,10 @@ export function StaffLayout(): ReactElement {
 
   if (!me || me.accountStatus !== "ACTIVE") {
     return <AccountStatePage status={me?.accountStatus ?? "PENDING"} />;
+  }
+
+  if (isAuthorizedAdmin(me)) {
+    return <Navigate to="/admin" replace />;
   }
 
   const selectedBranchId = activeBranchId ?? me.activeBranch?.id ?? activeMemberships[0]?.branch.id ?? null;

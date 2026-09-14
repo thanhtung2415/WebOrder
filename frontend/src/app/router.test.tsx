@@ -64,47 +64,23 @@ describe("router shells", () => {
   beforeEach(() => {
     localStorage.clear();
     fetchSetupStatusMock.mockResolvedValue({ status: "COMPLETED" });
-    fetchAuthMeMock.mockResolvedValue({
-      profile: {
-        id: "admin-id",
-        email: "owner@example.com",
-        displayName: "Owner"
-      },
-      accountStatus: "ACTIVE",
-      activeBranch: {
-        id: "branch-id",
-        code: "MAIN",
-        name: "Main Branch",
-        timezone: "Asia/Ho_Chi_Minh"
-      },
-      memberships: [
-        {
-          id: "membership-id",
-          isPrimary: true,
-          isActive: true,
-          branch: {
-            id: "branch-id",
-            code: "MAIN",
-            name: "Main Branch",
-            timezone: "Asia/Ho_Chi_Minh"
-          },
-          roles: ["ADMIN"],
-          permissions: ["STAFF_READ", "BRANCH_READ", "ROLE_READ"]
-        }
-      ],
-      roles: ["ADMIN"],
-      permissions: ["STAFF_READ", "BRANCH_READ", "ROLE_READ"],
-      shiftAccess: {
-        current: null,
-        availableActions: []
-      }
-    });
+    fetchAuthMeMock.mockResolvedValue(authMe());
   });
 
   it("renders staff shell", async () => {
+    fetchAuthMeMock.mockResolvedValue(authMe({ roles: ["CASHIER"], permissions: ["BILL_READ"] }));
+
     renderRoute("/staff");
 
     expect(await screen.findByText("Staff layout")).toBeInTheDocument();
+  });
+
+  it("redirects active admin users away from staff login to admin", async () => {
+    fetchAuthMeMock.mockResolvedValue(authMe({ roles: ["ADMIN"], permissions: ["STAFF_READ", "BRANCH_READ", "ROLE_READ"] }));
+
+    renderRoute("/staff");
+
+    expect(await screen.findByText("WebOrder Admin")).toBeInTheDocument();
   });
 
   it("renders admin shell", async () => {
@@ -113,3 +89,49 @@ describe("router shells", () => {
     expect(await screen.findByText("WebOrder Admin")).toBeInTheDocument();
   });
 });
+
+function authMe(
+  overrides: Partial<{
+    roles: string[];
+    permissions: string[];
+  }> = {}
+) {
+  const roles = overrides.roles ?? ["ADMIN"];
+  const permissions = overrides.permissions ?? ["STAFF_READ", "BRANCH_READ", "ROLE_READ"];
+
+  return {
+    profile: {
+      id: "admin-id",
+      email: "owner@example.com",
+      displayName: "Owner"
+    },
+    accountStatus: "ACTIVE",
+    activeBranch: {
+      id: "branch-id",
+      code: "MAIN",
+      name: "Main Branch",
+      timezone: "Asia/Ho_Chi_Minh"
+    },
+    memberships: [
+      {
+        id: "membership-id",
+        isPrimary: true,
+        isActive: true,
+        branch: {
+          id: "branch-id",
+          code: "MAIN",
+          name: "Main Branch",
+          timezone: "Asia/Ho_Chi_Minh"
+        },
+        roles,
+        permissions
+      }
+    ],
+    roles,
+    permissions,
+    shiftAccess: {
+      current: null,
+      availableActions: []
+    }
+  };
+}
