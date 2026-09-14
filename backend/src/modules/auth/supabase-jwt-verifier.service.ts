@@ -85,8 +85,14 @@ export class SupabaseJwtVerifierService {
     }
 
     const email = this.readStringClaim(payload, "email");
-    const emailVerified = this.readBooleanClaim(payload, "email_verified");
-    if (!email || emailVerified !== true) {
+    const role = this.readStringClaim(payload, "role");
+    const isAnonymous = payload.is_anonymous;
+    const appMetadata = this.isRecord(payload.app_metadata) ? payload.app_metadata : undefined;
+    const provider = appMetadata ? this.readRecordString(appMetadata, "provider") : undefined;
+    const providers = appMetadata?.providers;
+    const hasGoogleProvider = provider === "google" || (Array.isArray(providers) && providers.includes("google"));
+
+    if (!email || role !== "authenticated" || isAnonymous !== false || !hasGoogleProvider) {
       throw invalidToken();
     }
 
@@ -118,11 +124,6 @@ export class SupabaseJwtVerifierService {
   private readStringClaim(payload: JwtPayload, key: string): string | undefined {
     const value = payload[key];
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-  }
-
-  private readBooleanClaim(payload: JwtPayload, key: string): boolean | undefined {
-    const value = payload[key];
-    return typeof value === "boolean" ? value : undefined;
   }
 
   private readRecordString(record: Record<string, unknown>, key: string): string | undefined {

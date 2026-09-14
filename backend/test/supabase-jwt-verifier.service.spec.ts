@@ -63,20 +63,43 @@ describe("SupabaseJwtVerifierService", () => {
     });
   });
 
-  it("rejects unverified email claims", async () => {
-    const token = createToken({ emailVerified: false });
+  it("accepts the standard Supabase claims without a non-standard email_verified claim", async () => {
+    const token = createToken();
+
+    await expect(service.verify(token)).resolves.toMatchObject({
+      email: "owner@example.com"
+    });
+  });
+
+  it("rejects anonymous identities", async () => {
+    const token = createToken({ isAnonymous: true });
 
     await expect(service.verify(token)).rejects.toMatchObject({
       response: { code: "INVALID_TOKEN" }
     });
   });
 
-  function createToken(options: { audience?: string; expiresIn?: SignOptions["expiresIn"]; emailVerified?: boolean } = {}): string {
+  it("rejects identities that did not authenticate through Google", async () => {
+    const token = createToken({ provider: "email" });
+
+    await expect(service.verify(token)).rejects.toMatchObject({
+      response: { code: "INVALID_TOKEN" }
+    });
+  });
+
+  function createToken(
+    options: { audience?: string; expiresIn?: SignOptions["expiresIn"]; isAnonymous?: boolean; provider?: string } = {}
+  ): string {
     return sign(
       {
         sub: "1d653f5e-62e0-47d4-9465-f57d8e3f8026",
         email: "owner@example.com",
-        email_verified: options.emailVerified ?? true,
+        role: "authenticated",
+        is_anonymous: options.isAnonymous ?? false,
+        app_metadata: {
+          provider: options.provider ?? "google",
+          providers: [options.provider ?? "google"]
+        },
         name: "Owner"
       },
       privateKey,
