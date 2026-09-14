@@ -1,29 +1,40 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { ReactElement, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ReactElement, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { Navigate } from "react-router-dom";
 import { useAuthSession } from "./use-auth-session";
+import { AccountStatePage } from "./account-state-page";
+import { isAuthorizedAdmin } from "./auth-routing";
 import { Button } from "../components/ui/button";
+import { ApiClientError } from "../services/api-client";
 import { fetchAuthMe, registerStaff } from "../setup/setup-api";
 
 export function PendingPage(): ReactElement {
   const { t } = useTranslation();
   const { accessToken, isLoading, signInWithGoogle } = useAuthSession();
+  const queryClient = useQueryClient();
+  const attemptedRegistrationToken = useRef<string | null>(null);
   const meQuery = useQuery({
     queryKey: ["auth-me", accessToken],
     queryFn: () => fetchAuthMe(accessToken ?? ""),
     enabled: Boolean(accessToken)
   });
   const registration = useMutation({
-    mutationFn: () => registerStaff(accessToken ?? "")
+    mutationFn: () => registerStaff(accessToken ?? ""),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["auth-me", accessToken] });
+    }
   });
+  const shouldRegister = meQuery.error instanceof ApiClientError && meQuery.error.code === "USER_NOT_REGISTERED";
 
   useEffect(() => {
-    if (accessToken && meQuery.isError && !registration.isPending && !registration.isSuccess) {
+    if (accessToken && shouldRegister && attemptedRegistrationToken.current !== accessToken) {
+      attemptedRegistrationToken.current = accessToken;
       registration.mutate();
     }
-  }, [accessToken, meQuery.isError, registration]);
+  }, [accessToken, registration, shouldRegister]);
 
-  if (isLoading) {
+  if (isLoading || meQuery.isLoading) {
     return <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">{t("setup.loading")}</main>;
   }
 
@@ -39,6 +50,14 @@ export function PendingPage(): ReactElement {
         </section>
       </main>
     );
+  }
+
+  if (meQuery.data?.accountStatus === "ACTIVE") {
+    return <Navigate to={isAuthorizedAdmin(meQuery.data) ? "/admin" : "/staff"} replace />;
+  }
+
+  if (meQuery.data && meQuery.data.accountStatus !== "PENDING") {
+    return <AccountStatePage status={meQuery.data.accountStatus} />;
   }
 
   const accountStatus = meQuery.data?.accountStatus ?? "PENDING";
